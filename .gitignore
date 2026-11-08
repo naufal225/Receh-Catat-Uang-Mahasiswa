@@ -1,0 +1,16 @@
+# Backend
+backend/*.db
+backend/*.db-shm
+backend/*.db-wal
+backend/.env
+backend/*.exe
+backend/bin/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+*.tsbuildinfo
+
+# Misc
+.DS_Store
+*.log
