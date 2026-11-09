@@ -346,6 +346,8 @@ type Dashboard struct {
 	UpcomingRoutines []Recurring     `json:"upcomingRoutines"`
 	// Budgets of the current month (not affected by the wallet filter).
 	Budgets []BudgetStatus `json:"budgets"`
+	// Active savings goals.
+	Goals []GoalProgress `json:"goals"`
 }
 
 type MonthlyReport struct {

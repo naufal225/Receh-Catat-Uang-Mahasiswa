@@ -26,6 +26,7 @@ type DashboardService struct {
 	cache    *cache.TTL[dashKey, *domain.Dashboard]
 	versions *cache.Versions
 	budgets  BudgetMonths
+	goals    GoalLister
 }
 
 // BudgetMonths is what the dashboard needs from BudgetService.
@@ -35,6 +36,14 @@ type BudgetMonths interface {
 
 // WithBudgets adds this month's budgets to the dashboard.
 func (s *DashboardService) WithBudgets(b BudgetMonths) { s.budgets = b }
+
+// GoalLister is what the dashboard needs from GoalService.
+type GoalLister interface {
+	List(ctx context.Context, userID int64, includeArchived bool) ([]domain.GoalProgress, error)
+}
+
+// WithGoals adds active savings goals to the dashboard.
+func (s *DashboardService) WithGoals(g GoalLister) { s.goals = g }
 
 type dashKey struct {
 	userID, walletID int64
@@ -169,6 +178,13 @@ func (s *DashboardService) build(ctx context.Context, userID int64, unit string,
 		},
 		func() (e error) { d.Wallets, e = s.wallets.List(ctx, userID, false); return },
 		func() (e error) { d.Latest, e = s.txs.Latest(ctx, userID, walletID, 8); return },
+		func() (e error) {
+			d.Goals = []domain.GoalProgress{}
+			if s.goals != nil {
+				d.Goals, e = s.goals.List(ctx, userID, false)
+			}
+			return
+		},
 		func() error {
 			d.Budgets = []domain.BudgetStatus{}
 			if s.budgets == nil {

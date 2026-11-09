@@ -24,6 +24,7 @@ type Services struct {
 	Admin      *usecase.AdminService
 	Membership *usecase.MembershipService
 	Budgets    *usecase.BudgetService
+	Goals      *usecase.GoalService
 }
 
 type Options struct {
@@ -91,6 +92,15 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/budgets", s.userWrite(s.createBudget))
 	mux.HandleFunc("PUT /api/budgets/{id}", s.userWrite(s.updateBudget))
 	mux.HandleFunc("DELETE /api/budgets/{id}", s.userWrite(s.deleteBudget))
+
+	mux.HandleFunc("GET /api/goals", s.userRead(s.listGoals))
+	mux.HandleFunc("POST /api/goals", s.userWrite(s.createGoal))
+	mux.HandleFunc("PUT /api/goals/{id}", s.userWrite(s.updateGoal))
+	mux.HandleFunc("DELETE /api/goals/{id}", s.userWrite(s.deleteGoal))
+	mux.HandleFunc("POST /api/goals/{id}/archive", s.userWrite(s.archiveGoal))
+	mux.HandleFunc("GET /api/goals/{id}/contributions", s.userRead(s.goalContributions))
+	mux.HandleFunc("POST /api/goals/{id}/contributions", s.userWrite(s.contribute))
+	mux.HandleFunc("DELETE /api/goals/{id}/contributions/{cid}", s.userWrite(s.deleteContribution))
 
 	mux.HandleFunc("GET /api/membership", s.userRead(s.membership))
 	mux.HandleFunc("POST /api/membership/redeem", s.userWrite(s.redeemCode))

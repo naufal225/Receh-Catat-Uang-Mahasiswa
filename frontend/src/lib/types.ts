@@ -146,6 +146,7 @@ export interface Dashboard {
   latest: Transaction[];
   upcomingRoutines: Recurring[];
   budgets: BudgetStatus[];
+  goals: GoalProgress[];
 }
 
 export interface SliceSet {
@@ -261,4 +262,35 @@ export interface BudgetMonth {
   daysLeft: number;
   isCurrent: boolean;
   unbudgeted: number;
+}
+
+/* ---------- Savings goals ---------- */
+export interface GoalProgress {
+  id: number;
+  name: string;
+  targetAmount: number;
+  deadline: string | null;
+  walletId: number | null;
+  walletName?: string;
+  color: string;
+  createdAt: string;
+  archivedAt: string | null;
+  saved: number;
+  remaining: number;
+  percent: number;
+  achieved: boolean;
+  daysLeft: number | null;
+  perWeek: number;
+  perMonth: number;
+  overdue: boolean;
+  manualSaving: boolean;
+}
+
+export interface GoalContribution {
+  id: number;
+  goalId: number;
+  amount: number;
+  note: string;
+  occurredOn: string;
+  createdAt: string;
 }

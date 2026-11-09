@@ -218,3 +218,33 @@ CREATE TABLE IF NOT EXISTS budgets (
     CONSTRAINT fk_budget_category FOREIGN KEY (category_id) REFERENCES categories (id) ON DELETE CASCADE,
     CONSTRAINT ck_budget_amount CHECK (amount > 0)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci;
+
+-- Savings goals. Progress is the linked wallet's balance when wallet_id is set,
+-- otherwise the sum of goal_contributions (a virtual piggy bank).
+CREATE TABLE IF NOT EXISTS goals (
+    id            BIGINT      NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    user_id       BIGINT      NOT NULL,
+    name          VARCHAR(60) NOT NULL,
+    target_amount BIGINT      NOT NULL,
+    deadline      DATE        NULL,
+    wallet_id     BIGINT      NULL,
+    color         VARCHAR(8)  NOT NULL,
+    archived_at   BIGINT      NULL,
+    created_at    BIGINT      NOT NULL,
+    KEY idx_goals_user (user_id, archived_at),
+    CONSTRAINT fk_goal_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+    CONSTRAINT fk_goal_wallet FOREIGN KEY (wallet_id) REFERENCES wallets (id) ON DELETE SET NULL,
+    CONSTRAINT ck_goal_target CHECK (target_amount > 0)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci;
+
+CREATE TABLE IF NOT EXISTS goal_contributions (
+    id          BIGINT      NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    goal_id     BIGINT      NOT NULL,
+    amount      BIGINT      NOT NULL,
+    note        VARCHAR(80) NOT NULL DEFAULT '',
+    occurred_on DATE        NOT NULL,
+    created_at  BIGINT      NOT NULL,
+    KEY idx_contrib_goal (goal_id, occurred_on),
+    CONSTRAINT fk_contrib_goal FOREIGN KEY (goal_id) REFERENCES goals (id) ON DELETE CASCADE,
+    CONSTRAINT ck_contrib_amount CHECK (amount <> 0)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci;
