@@ -5,7 +5,8 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { api, ApiError } from '../lib/api';
 import { useFinance, type EntryMode } from '../lib/finance';
 import { formatRp, shiftISO, todayISO } from '../lib/format';
-import type { TxType } from '../lib/types';
+import { useFetch } from '../lib/hooks';
+import type { BudgetMonth, TxType } from '../lib/types';
 import { TransferForm } from './TransferForm';
 import { AmountInput, Empty, Field, Link, Modal, Segmented, useToast } from './ui';
 
@@ -47,7 +48,9 @@ function EntryBody() {
 }
 
 function TransactionForm({ type }: { type: TxType }) {
-  const { wallets, categories, txModal, closeTx, changed } = useFinance();
+  const { wallets, categories, txModal, closeTx, changed, version } = useFinance();
+  // This month's budgets, to show what a new expense leaves in its category.
+  const { data: budgets } = useFetch<BudgetMonth>(type === 'expense' ? `/budgets?v=${version}` : null);
   const toast = useToast();
   const edit = txModal.edit;
   const today = todayISO();
@@ -109,6 +112,11 @@ function TransactionForm({ type }: { type: TxType }) {
   }
 
   const remaining = selectedWallet && type === 'expense' && amount > 0 && !edit ? selectedWallet.balance - amount : null;
+  const budget = type === 'expense' && budgets?.isCurrent && date.slice(0, 7) === budgets.month
+    ? budgets.items.find((b) => b.categoryId === categoryId)
+    : undefined;
+  // Editing an expense already counted in this budget: only the difference is new.
+  const budgetAfter = budget ? budget.remaining - amount + (edit && edit.categoryId === categoryId && edit.occurredOn.slice(0, 7) === budgets!.month ? edit.amount : 0) : null;
 
   return (
     <form className="form-grid" onSubmit={submit} noValidate>
@@ -134,7 +142,12 @@ function TransactionForm({ type }: { type: TxType }) {
         </div>
       </Field>
 
-      <Field label="Kategori" error={errors.categoryId}>
+      <Field label="Kategori" error={errors.categoryId}
+        hint={budget && budgetAfter !== null
+          ? budgetAfter >= 0
+            ? `Anggaran ${budget.categoryName}: sisa ${formatRp(budgetAfter)} bulan ini setelah transaksi ini.`
+            : `Melewati anggaran ${budget.categoryName} sebesar ${formatRp(-budgetAfter)} bulan ini.`
+          : undefined}>
         <div className="chips" role="group" aria-label="Kategori">
           {cats.map((c) => (
             <button key={c.id} type="button" className="chip" aria-pressed={categoryId === c.id} onClick={() => setCategoryId(c.id)}>

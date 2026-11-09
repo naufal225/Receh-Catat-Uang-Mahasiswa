@@ -14,7 +14,8 @@ const userNav: NavItem[] = [
   { to: '/app', label: 'Ringkasan', icon: 'home', short: 'Ringkasan' },
   { to: '/app/transaksi', label: 'Riwayat transaksi', icon: 'list', short: 'Riwayat' },
   { to: '/app/dompet', label: 'Dompet', icon: 'wallet', short: 'Dompet' },
-  { to: '/app/rutin', label: 'Rutin & rencana', icon: 'repeat', short: 'Rutin' },
+  { to: '/app/anggaran', label: 'Anggaran', icon: 'pie', short: 'Anggaran' },
+  { to: '/app/rutin', label: 'Rutin & rencana', icon: 'repeat' },
   { to: '/app/kategori', label: 'Kategori', icon: 'tag' },
   { to: '/app/laporan', label: 'Laporan bulanan', icon: 'file' },
   { to: '/app/keamanan', label: 'Perangkat & keamanan', icon: 'device' },
@@ -114,6 +115,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div style={{ display: 'flex', gap: 2 }}>
           {!isAdmin && (
             <>
+              <Link to="/app/rutin" className="icon-btn" aria-label="Rutin & rencana"><Icon name="repeat" /></Link>
               <Link to="/app/kategori" className="icon-btn" aria-label="Kategori"><Icon name="tag" /></Link>
               <Link to="/app/laporan" className="icon-btn" aria-label="Laporan"><Icon name="file" /></Link>
               <Link to="/app/keamanan" className="icon-btn" aria-label="Perangkat & keamanan"><Icon name="device" /></Link>

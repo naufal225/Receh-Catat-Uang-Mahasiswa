@@ -1,0 +1,4 @@
+# Keep LF everywhere so checkouts on Windows do not rewrite every file.
+* text=auto eol=lf
+*.png binary
+*.pdf binary

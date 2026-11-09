@@ -9,6 +9,7 @@ import { navigate, useLocation } from './lib/router';
 import AdminAudit from './pages/AdminAudit';
 import AdminPromos from './pages/AdminPromos';
 import AdminUsers from './pages/AdminUsers';
+import Budgets from './pages/Budgets';
 import { Login, Register } from './pages/Auth';
 import Categories from './pages/Categories';
 import Dashboard from './pages/Dashboard';
@@ -25,6 +26,7 @@ const userPages: Record<string, { el: () => ReactNode; title: string }> = {
   '/app/transaksi': { el: Transactions, title: 'Riwayat transaksi' },
   '/app/dompet': { el: Wallets, title: 'Dompet' },
   '/app/kategori': { el: Categories, title: 'Kategori' },
+  '/app/anggaran': { el: Budgets, title: 'Anggaran' },
   '/app/rutin': { el: Recurring, title: 'Rutin & rencana' },
   '/app/laporan': { el: Reports, title: 'Laporan bulanan' },
   '/app/keamanan': { el: Security, title: 'Perangkat & keamanan' },

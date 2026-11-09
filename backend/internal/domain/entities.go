@@ -344,6 +344,8 @@ type Dashboard struct {
 	Wallets          []Wallet        `json:"wallets"`
 	Latest           []Transaction   `json:"latest"`
 	UpcomingRoutines []Recurring     `json:"upcomingRoutines"`
+	// Budgets of the current month (not affected by the wallet filter).
+	Budgets []BudgetStatus `json:"budgets"`
 }
 
 type MonthlyReport struct {

@@ -78,6 +78,9 @@ func New(p Params) *App {
 		users, wallets, audit, p.Clock)
 
 	dashboard := usecase.NewDashboardService(txs, wallets, recurring, p.Clock, versions, p.DashboardCacheTTL)
+	budgets := usecase.NewBudgetService(mysql.NewBudgetRepo(p.DB), categories, txs, p.Clock, locks, membership, versions)
+	dashboard.WithBudgets(budgets)
+	membership.AddUsageCounter(budgets.Count)
 	svc := deliveryhttp.Services{
 		Auth:       auth,
 		Wallets:    usecase.NewWalletService(wallets, recurring, locks, versions, membership),
@@ -89,6 +92,7 @@ func New(p Params) *App {
 		Reports:    usecase.NewReportService(txs, pdf.ReportRenderer{}, p.Clock),
 		Admin:      usecase.NewAdminService(users, sessions, auditRepo, audit, p.BcryptCost),
 		Membership: membership,
+		Budgets:    budgets,
 	}
 	server := deliveryhttp.NewServer(svc, deliveryhttp.Options{
 		CookieSecure: p.CookieSecure, TrustProxy: p.TrustProxy, StaticDir: p.StaticDir,

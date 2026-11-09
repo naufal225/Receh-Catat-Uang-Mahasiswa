@@ -204,3 +204,17 @@ CREATE TABLE IF NOT EXISTS promo_redemptions (
     CONSTRAINT fk_red_code FOREIGN KEY (code_id) REFERENCES promo_codes (id) ON DELETE CASCADE,
     CONSTRAINT fk_red_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci;
+
+-- Monthly spending cap per expense category. Deleting the category deletes
+-- its budget: a budget for a category that no longer exists means nothing.
+CREATE TABLE IF NOT EXISTS budgets (
+    id          BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    user_id     BIGINT NOT NULL,
+    category_id BIGINT NOT NULL,
+    amount      BIGINT NOT NULL,
+    created_at  BIGINT NOT NULL,
+    UNIQUE KEY uq_budget_category (user_id, category_id),
+    CONSTRAINT fk_budget_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+    CONSTRAINT fk_budget_category FOREIGN KEY (category_id) REFERENCES categories (id) ON DELETE CASCADE,
+    CONSTRAINT ck_budget_amount CHECK (amount > 0)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci;

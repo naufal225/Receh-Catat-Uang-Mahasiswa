@@ -2063,3 +2063,116 @@ dialog.modal[open] {
   color: var(--muted);
   font-size: 12.5px;
 }
+
+/* === BUDGETS === */
+.budget-bar {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.bb-top,
+.bb-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+.bb-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 650;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bb-figures {
+  font-size: 13px;
+  white-space: nowrap;
+}
+.budget-bar.compact .bb-figures {
+  font-size: 12px;
+}
+.bb-track {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+.bb-track.big {
+  height: 12px;
+  grid-column: 1 / -1;
+}
+.bb-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--income);
+  transition: width 0.4s ease;
+}
+.level-warning .bb-track span,
+.bb-track span.warning {
+  background: var(--warn);
+}
+.level-over .bb-track span,
+.bb-track span.over {
+  background: var(--danger);
+}
+.bb-foot {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.level-warning .bb-level {
+  color: var(--warn);
+  font-weight: 650;
+}
+.level-over .bb-level {
+  color: var(--danger);
+  font-weight: 650;
+}
+.budget-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px 24px;
+  margin-bottom: 16px;
+}
+.budget-summary .label {
+  display: block;
+  margin-bottom: 2px;
+}
+.budget-summary strong {
+  font-size: 22px;
+}
+.budget-summary p {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+.budget-list {
+  overflow: hidden;
+}
+.budget-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 16px 18px;
+}
+.budget-row + .budget-row {
+  border-top: 1px solid var(--line);
+}
+@media (max-width: 560px) {
+  .budget-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+    padding: 14px 16px;
+  }
+  .budget-row .row-actions {
+    justify-self: end;
+  }
+  .bb-top {
+    flex-wrap: wrap;
+    row-gap: 2px;
+  }
+}
