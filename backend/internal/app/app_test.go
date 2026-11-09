@@ -28,8 +28,9 @@ import (
 // fakeClock lets a test move "today" so the recurring engine can be exercised
 // across months without waiting.
 type fakeClock struct {
-	mu  sync.Mutex
-	day string
+	mu   sync.Mutex
+	day  string
+	hour int // 0 means 09:00
 }
 
 func (c *fakeClock) Today() string {
@@ -40,7 +41,19 @@ func (c *fakeClock) Today() string {
 
 func (c *fakeClock) Now() time.Time {
 	d, _ := domain.ParseDate(c.Today())
-	return d.Add(9 * time.Hour)
+	c.mu.Lock()
+	h := c.hour
+	c.mu.Unlock()
+	if h == 0 {
+		h = 9
+	}
+	return d.Add(time.Duration(h) * time.Hour)
+}
+
+func (c *fakeClock) setHour(h int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.hour = h
 }
 
 func (c *fakeClock) set(day string) {

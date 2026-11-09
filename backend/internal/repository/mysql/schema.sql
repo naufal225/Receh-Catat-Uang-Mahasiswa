@@ -248,3 +248,31 @@ CREATE TABLE IF NOT EXISTS goal_contributions (
     CONSTRAINT fk_contrib_goal FOREIGN KEY (goal_id) REFERENCES goals (id) ON DELETE CASCADE,
     CONSTRAINT ck_contrib_amount CHECK (amount <> 0)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci;
+
+-- In-app notifications. ref_key names the event, unique per user, so a sweep
+-- that runs twice (or after a restart) never notifies twice.
+CREATE TABLE IF NOT EXISTS notifications (
+    id         BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    user_id    BIGINT       NOT NULL,
+    kind       VARCHAR(20)  NOT NULL,
+    title      VARCHAR(120) NOT NULL,
+    body       VARCHAR(300) NOT NULL DEFAULT '',
+    link       VARCHAR(120) NOT NULL DEFAULT '',
+    ref_key    VARCHAR(80)  NOT NULL,
+    read_at    BIGINT       NULL,
+    created_at BIGINT       NOT NULL,
+    UNIQUE KEY uq_notification_ref (user_id, ref_key),
+    KEY idx_notifications_inbox (user_id, created_at DESC),
+    KEY idx_notifications_age (created_at),
+    CONSTRAINT fk_notif_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci;
+
+CREATE TABLE IF NOT EXISTS notification_prefs (
+    user_id               BIGINT       NOT NULL PRIMARY KEY,
+    disabled_kinds        VARCHAR(300) NOT NULL DEFAULT '',
+    low_balance_threshold BIGINT       NOT NULL DEFAULT 50000,
+    reminder_hour         INT          NOT NULL DEFAULT 20,
+    CONSTRAINT fk_nprefs_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+    CONSTRAINT ck_nprefs_hour CHECK (reminder_hour BETWEEN 0 AND 23),
+    CONSTRAINT ck_nprefs_threshold CHECK (low_balance_threshold >= 0)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci;

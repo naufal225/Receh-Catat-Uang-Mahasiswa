@@ -31,12 +31,12 @@ func (s UserStatus) Valid() bool {
 }
 
 type User struct {
-	ID           int64      `json:"id"`
-	Name         string     `json:"name"`
-	Email        string     `json:"email"`
-	PasswordHash string     `json:"-"`
+	ID           int64  `json:"id"`
+	Name         string `json:"name"`
+	Email        string `json:"email"`
+	PasswordHash string `json:"-"`
 	// GoogleSub is Google's stable account id once the user signed in with Google.
-	GoogleSub string `json:"-"`
+	GoogleSub    string     `json:"-"`
 	Role         Role       `json:"role"`
 	Status       UserStatus `json:"status"`
 	StatusReason string     `json:"statusReason"`
@@ -135,19 +135,19 @@ type Category struct {
 // (YYYY-MM-DD) because that is how people think about spending, and it keeps
 // monthly grouping free of timezone arithmetic.
 type Transaction struct {
-	ID            int64     `json:"id"`
-	UserID        int64     `json:"-"`
-	WalletID      int64     `json:"walletId"`
-	WalletName    string    `json:"walletName"`
-	WalletColor   string    `json:"walletColor"`
-	CategoryID    int64     `json:"categoryId"`
-	CategoryName  string    `json:"categoryName"`
-	CategoryColor string    `json:"categoryColor"`
-	Type          TxType    `json:"type"`
-	Name          string    `json:"name"`
-	Amount        int64     `json:"amount"`
-	OccurredOn    string    `json:"occurredOn"`
-	RecurringID   *int64    `json:"recurringId"`
+	ID            int64  `json:"id"`
+	UserID        int64  `json:"-"`
+	WalletID      int64  `json:"walletId"`
+	WalletName    string `json:"walletName"`
+	WalletColor   string `json:"walletColor"`
+	CategoryID    int64  `json:"categoryId"`
+	CategoryName  string `json:"categoryName"`
+	CategoryColor string `json:"categoryColor"`
+	Type          TxType `json:"type"`
+	Name          string `json:"name"`
+	Amount        int64  `json:"amount"`
+	OccurredOn    string `json:"occurredOn"`
+	RecurringID   *int64 `json:"recurringId"`
 	// TransferID is set on both legs of a transfer and on its fee expense. Such
 	// rows change only through the transfer they belong to.
 	TransferID *int64 `json:"transferId"`

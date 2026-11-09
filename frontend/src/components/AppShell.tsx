@@ -6,6 +6,7 @@ import { useFinance } from '../lib/finance';
 import { useStoredState } from '../lib/hooks';
 import { navigate, useLocation } from '../lib/router';
 import { Icon, Logo, type IconName } from './Icon';
+import { NotificationBell } from './Notifications';
 import { initial, Link, Modal } from './ui';
 
 type NavItem = { to: string; label: string; icon: IconName; short?: string };
@@ -19,6 +20,7 @@ const userNav: NavItem[] = [
   { to: '/app/rutin', label: 'Rutin & rencana', icon: 'repeat' },
   { to: '/app/kategori', label: 'Kategori', icon: 'tag' },
   { to: '/app/laporan', label: 'Laporan bulanan', icon: 'file' },
+  { to: '/app/notifikasi', label: 'Notifikasi', icon: 'bell' },
   { to: '/app/keamanan', label: 'Perangkat & keamanan', icon: 'device' },
   { to: '/app/langganan', label: 'Langganan', icon: 'sparkle' },
 ];
@@ -105,7 +107,10 @@ export function AppShell({ children }: { children: ReactNode }) {
             </div>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <ThemeToggle />
+            <div style={{ display: 'flex', gap: 2 }}>
+              <ThemeToggle />
+              {!isAdmin && <NotificationBell />}
+            </div>
             <button type="button" className="btn btn-quiet btn-sm" onClick={signOut}>
               <Icon name="logout" size={18} /> Keluar
             </button>
@@ -118,6 +123,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <Logo size={26} /> Receh
         </Link>
         <div style={{ display: 'flex', gap: 2 }}>
+          {!isAdmin && <NotificationBell />}
           <ThemeToggle />
           <button type="button" className="icon-btn" onClick={() => setMenuOpen(true)} aria-label="Menu" aria-haspopup="dialog">
             <Icon name="menu" />

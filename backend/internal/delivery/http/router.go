@@ -13,18 +13,19 @@ import (
 
 // Services groups what the handlers call.
 type Services struct {
-	Auth       *usecase.AuthService
-	Wallets    *usecase.WalletService
-	Categories *usecase.CategoryService
-	Txs        *usecase.TransactionService
-	Transfers  *usecase.TransferService
-	Recurring  *usecase.RecurringService
-	Dashboard  *usecase.DashboardService
-	Reports    *usecase.ReportService
-	Admin      *usecase.AdminService
-	Membership *usecase.MembershipService
-	Budgets    *usecase.BudgetService
-	Goals      *usecase.GoalService
+	Auth          *usecase.AuthService
+	Wallets       *usecase.WalletService
+	Categories    *usecase.CategoryService
+	Txs           *usecase.TransactionService
+	Transfers     *usecase.TransferService
+	Recurring     *usecase.RecurringService
+	Dashboard     *usecase.DashboardService
+	Reports       *usecase.ReportService
+	Admin         *usecase.AdminService
+	Membership    *usecase.MembershipService
+	Budgets       *usecase.BudgetService
+	Goals         *usecase.GoalService
+	Notifications *usecase.NotificationService
 }
 
 type Options struct {
@@ -101,6 +102,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/goals/{id}/contributions", s.userRead(s.goalContributions))
 	mux.HandleFunc("POST /api/goals/{id}/contributions", s.userWrite(s.contribute))
 	mux.HandleFunc("DELETE /api/goals/{id}/contributions/{cid}", s.userWrite(s.deleteContribution))
+
+	mux.HandleFunc("GET /api/notifications", s.userRead(s.inbox))
+	mux.HandleFunc("GET /api/notifications/unread", s.userRead(s.unreadCount))
+	mux.HandleFunc("POST /api/notifications/read", s.userRead(s.markRead))
+	mux.HandleFunc("GET /api/notifications/prefs", s.userRead(s.notificationPrefs))
+	mux.HandleFunc("PUT /api/notifications/prefs", s.userWrite(s.saveNotificationPrefs))
 
 	mux.HandleFunc("GET /api/membership", s.userRead(s.membership))
 	mux.HandleFunc("POST /api/membership/redeem", s.userWrite(s.redeemCode))

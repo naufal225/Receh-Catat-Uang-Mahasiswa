@@ -18,6 +18,9 @@ type UserRepository interface {
 	List(ctx context.Context, f UserFilter) (Page[User], error)
 	CountAdmins(ctx context.Context) (int, error)
 	ByGoogleSub(ctx context.Context, sub string) (*User, error)
+	// ActiveUserIDs lists active (not suspended or frozen) user accounts, for
+	// background jobs that run per user.
+	ActiveUserIDs(ctx context.Context) ([]int64, error)
 	// LinkGoogle attaches a Google account to a user that has none yet.
 	LinkGoogle(ctx context.Context, id int64, sub string) error
 }
