@@ -13,6 +13,7 @@ import Budgets from './pages/Budgets';
 import { Login, Register } from './pages/Auth';
 import Categories from './pages/Categories';
 import Dashboard from './pages/Dashboard';
+import Goals from './pages/Goals';
 import Landing from './pages/Landing';
 import Recurring from './pages/Recurring';
 import Reports from './pages/Reports';
@@ -27,6 +28,7 @@ const userPages: Record<string, { el: () => ReactNode; title: string }> = {
   '/app/dompet': { el: Wallets, title: 'Dompet' },
   '/app/kategori': { el: Categories, title: 'Kategori' },
   '/app/anggaran': { el: Budgets, title: 'Anggaran' },
+  '/app/target': { el: Goals, title: 'Target tabungan' },
   '/app/rutin': { el: Recurring, title: 'Rutin & rencana' },
   '/app/laporan': { el: Reports, title: 'Laporan bulanan' },
   '/app/keamanan': { el: Security, title: 'Perangkat & keamanan' },

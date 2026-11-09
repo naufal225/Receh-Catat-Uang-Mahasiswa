@@ -1,12 +1,12 @@
 // Layout for signed-in pages: sidebar on desktop, top bar + bottom nav with a
 // central "+" on mobile. Also hosts the theme toggle and the frozen banner.
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useAuth } from '../lib/auth';
 import { useFinance } from '../lib/finance';
 import { useStoredState } from '../lib/hooks';
 import { navigate, useLocation } from '../lib/router';
 import { Icon, Logo, type IconName } from './Icon';
-import { initial, Link } from './ui';
+import { initial, Link, Modal } from './ui';
 
 type NavItem = { to: string; label: string; icon: IconName; short?: string };
 
@@ -15,6 +15,7 @@ const userNav: NavItem[] = [
   { to: '/app/transaksi', label: 'Riwayat transaksi', icon: 'list', short: 'Riwayat' },
   { to: '/app/dompet', label: 'Dompet', icon: 'wallet', short: 'Dompet' },
   { to: '/app/anggaran', label: 'Anggaran', icon: 'pie', short: 'Anggaran' },
+  { to: '/app/target', label: 'Target tabungan', icon: 'target' },
   { to: '/app/rutin', label: 'Rutin & rencana', icon: 'repeat' },
   { to: '/app/kategori', label: 'Kategori', icon: 'tag' },
   { to: '/app/laporan', label: 'Laporan bulanan', icon: 'file' },
@@ -73,6 +74,10 @@ export function AppShell({ children }: { children: ReactNode }) {
   }
 
   const mobileItems = nav.filter((n) => n.short);
+  // Everything not in the bottom bar lives in the mobile menu sheet.
+  const menuItems = nav.filter((n) => !n.short);
+  const [menuOpen, setMenuOpen] = useState(false);
+  useEffect(() => setMenuOpen(false), [path]);
 
   return (
     <div className="shell">
@@ -113,17 +118,10 @@ export function AppShell({ children }: { children: ReactNode }) {
           <Logo size={26} /> Receh
         </Link>
         <div style={{ display: 'flex', gap: 2 }}>
-          {!isAdmin && (
-            <>
-              <Link to="/app/rutin" className="icon-btn" aria-label="Rutin & rencana"><Icon name="repeat" /></Link>
-              <Link to="/app/kategori" className="icon-btn" aria-label="Kategori"><Icon name="tag" /></Link>
-              <Link to="/app/laporan" className="icon-btn" aria-label="Laporan"><Icon name="file" /></Link>
-              <Link to="/app/keamanan" className="icon-btn" aria-label="Perangkat & keamanan"><Icon name="device" /></Link>
-              {membership?.billingEnabled && <Link to="/app/langganan" className="icon-btn" aria-label="Langganan"><Icon name="sparkle" /></Link>}
-            </>
-          )}
           <ThemeToggle />
-          <button type="button" className="icon-btn" onClick={signOut} aria-label="Keluar"><Icon name="logout" /></button>
+          <button type="button" className="icon-btn" onClick={() => setMenuOpen(true)} aria-label="Menu" aria-haspopup="dialog">
+            <Icon name="menu" />
+          </button>
         </div>
       </header>
 
@@ -139,6 +137,26 @@ export function AppShell({ children }: { children: ReactNode }) {
         )}
         {children}
       </main>
+
+      <Modal open={menuOpen} onClose={() => setMenuOpen(false)} title="Menu">
+        <div className="menu-sheet">
+          <div className="user-chip" style={{ padding: '0 0 12px' }}>
+            <div className="avatar">{initial(user?.name ?? '')}</div>
+            <div>
+              <strong>{user?.name}{isPremium && <span className="badge badge-accent premium-tag"><Icon name="sparkle" size={11} /> Premium</span>}</strong>
+              <span>{user?.email}</span>
+            </div>
+          </div>
+          {menuItems.map((n) => (
+            <Link key={n.to} to={n.to} className="nav-link" aria-current={current(n.to) ? 'page' : undefined}>
+              <Icon name={n.icon} /> {n.label}
+            </Link>
+          ))}
+          <button type="button" className="nav-link" onClick={signOut}>
+            <Icon name="logout" /> Keluar
+          </button>
+        </div>
+      </Modal>
 
       <nav className="bottom-nav" aria-label="Navigasi bawah" style={isAdmin ? { gridTemplateColumns: `repeat(${mobileItems.length}, 1fr)` } : undefined}>
         {mobileItems.slice(0, 2).map((n) => (
