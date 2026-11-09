@@ -15,6 +15,7 @@ import Categories from './pages/Categories';
 import Dashboard from './pages/Dashboard';
 import Goals from './pages/Goals';
 import Landing from './pages/Landing';
+import NotificationSettings from './pages/NotificationSettings';
 import Recurring from './pages/Recurring';
 import Reports from './pages/Reports';
 import Security from './pages/Security';
@@ -31,6 +32,7 @@ const userPages: Record<string, { el: () => ReactNode; title: string }> = {
   '/app/target': { el: Goals, title: 'Target tabungan' },
   '/app/rutin': { el: Recurring, title: 'Rutin & rencana' },
   '/app/laporan': { el: Reports, title: 'Laporan bulanan' },
+  '/app/notifikasi': { el: NotificationSettings, title: 'Notifikasi' },
   '/app/keamanan': { el: Security, title: 'Perangkat & keamanan' },
   '/app/langganan': { el: Subscription, title: 'Langganan' },
 };

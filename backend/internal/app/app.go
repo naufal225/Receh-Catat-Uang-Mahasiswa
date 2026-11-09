@@ -38,14 +38,15 @@ type Params struct {
 }
 
 type App struct {
-	Handler   http.Handler
-	Admin     *usecase.AdminService
-	Recurring *usecase.RecurringService
-	Auth      *usecase.AuthService
-	Txs       *usecase.TransactionService
-	audit     *usecase.AuditRecorder
-	janitors  []func(context.Context)
-	wg        sync.WaitGroup
+	Handler       http.Handler
+	Admin         *usecase.AdminService
+	Recurring     *usecase.RecurringService
+	Auth          *usecase.AuthService
+	Txs           *usecase.TransactionService
+	Notifications *usecase.NotificationService
+	audit         *usecase.AuditRecorder
+	janitors      []func(context.Context)
+	wg            sync.WaitGroup
 }
 
 func New(p Params) *App {
@@ -66,6 +67,9 @@ func New(p Params) *App {
 	locks := keymutex.New()
 	// Bumped by every write to a user's finances; the dashboard cache keys on it.
 	versions := cache.NewVersions()
+	// Every write tells all listeners: the version above and, once built, the
+	// notification worker.
+	changes := &usecase.ChangeNotifiers{versions}
 
 	auth := usecase.NewAuthService(users, sessions, audit, p.BcryptCost)
 	var janitors []func(context.Context)
@@ -78,25 +82,28 @@ func New(p Params) *App {
 		users, wallets, audit, p.Clock)
 
 	dashboard := usecase.NewDashboardService(txs, wallets, recurring, p.Clock, versions, p.DashboardCacheTTL)
-	budgets := usecase.NewBudgetService(mysql.NewBudgetRepo(p.DB), categories, txs, p.Clock, locks, membership, versions)
+	budgets := usecase.NewBudgetService(mysql.NewBudgetRepo(p.DB), categories, txs, p.Clock, locks, membership, changes)
 	dashboard.WithBudgets(budgets)
 	membership.AddUsageCounter(budgets.Count)
-	goals := usecase.NewGoalService(mysql.NewGoalRepo(p.DB), wallets, p.Clock, locks, membership, versions)
+	goals := usecase.NewGoalService(mysql.NewGoalRepo(p.DB), wallets, p.Clock, locks, membership, changes)
 	dashboard.WithGoals(goals)
 	membership.AddUsageCounter(goals.Count)
+	notifications := usecase.NewNotificationService(mysql.NewNotificationRepo(p.DB), users, wallets, recurring, txs, budgets, goals, p.Clock)
+	*changes = append(*changes, notifications)
 	svc := deliveryhttp.Services{
-		Auth:       auth,
-		Wallets:    usecase.NewWalletService(wallets, recurring, locks, versions, membership),
-		Categories: usecase.NewCategoryService(categories, versions),
-		Txs:        usecase.NewTransactionService(txs, wallets, categories, p.Clock, locks, versions),
-		Transfers:  usecase.NewTransferService(transfers, wallets, categories, p.Clock, locks, versions),
-		Recurring:  usecase.NewRecurringService(recurring, wallets, categories, p.Clock, locks, 4, versions),
-		Dashboard:  dashboard,
-		Reports:    usecase.NewReportService(txs, pdf.ReportRenderer{}, p.Clock),
-		Admin:      usecase.NewAdminService(users, sessions, auditRepo, audit, p.BcryptCost),
-		Membership: membership,
-		Budgets:    budgets,
-		Goals:      goals,
+		Auth:          auth,
+		Wallets:       usecase.NewWalletService(wallets, recurring, locks, changes, membership),
+		Categories:    usecase.NewCategoryService(categories, changes),
+		Txs:           usecase.NewTransactionService(txs, wallets, categories, p.Clock, locks, changes),
+		Transfers:     usecase.NewTransferService(transfers, wallets, categories, p.Clock, locks, changes),
+		Recurring:     usecase.NewRecurringService(recurring, wallets, categories, p.Clock, locks, 4, changes),
+		Dashboard:     dashboard,
+		Reports:       usecase.NewReportService(txs, pdf.ReportRenderer{}, p.Clock),
+		Admin:         usecase.NewAdminService(users, sessions, auditRepo, audit, p.BcryptCost),
+		Membership:    membership,
+		Budgets:       budgets,
+		Goals:         goals,
+		Notifications: notifications,
 	}
 	server := deliveryhttp.NewServer(svc, deliveryhttp.Options{
 		CookieSecure: p.CookieSecure, TrustProxy: p.TrustProxy, StaticDir: p.StaticDir,
@@ -104,10 +111,13 @@ func New(p Params) *App {
 	return &App{
 		Handler: server.Handler(), Admin: svc.Admin, Recurring: svc.Recurring,
 		Auth: svc.Auth, Txs: svc.Txs, audit: audit,
+		Notifications: notifications,
 		janitors: append(janitors,
 			func(ctx context.Context) { users.Cache().RunJanitor(ctx, time.Minute) },
 			func(ctx context.Context) { sessions.Cache().RunJanitor(ctx, time.Minute) },
 			func(ctx context.Context) { dashboard.Cache().RunJanitor(ctx, time.Minute) },
+			notifications.RunWorker,
+			func(ctx context.Context) { notifications.RunScheduler(ctx, 10*time.Minute) },
 		),
 	}
 }

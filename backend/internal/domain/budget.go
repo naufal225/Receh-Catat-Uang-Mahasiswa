@@ -50,13 +50,13 @@ type BudgetStatus struct {
 
 // BudgetMonth is every budget of a user for one month, with totals.
 type BudgetMonth struct {
-	Month        string         `json:"month"`
-	Title        string         `json:"title"`
-	Items        []BudgetStatus `json:"items"`
-	TotalBudget  int64          `json:"totalBudget"`
-	TotalSpent   int64          `json:"totalSpent"`
-	DaysLeft     int            `json:"daysLeft"`
-	IsCurrent    bool           `json:"isCurrent"`
+	Month       string         `json:"month"`
+	Title       string         `json:"title"`
+	Items       []BudgetStatus `json:"items"`
+	TotalBudget int64          `json:"totalBudget"`
+	TotalSpent  int64          `json:"totalSpent"`
+	DaysLeft    int            `json:"daysLeft"`
+	IsCurrent   bool           `json:"isCurrent"`
 	// Unbudgeted is spending this month in categories without a budget.
 	Unbudgeted int64 `json:"unbudgeted"`
 }

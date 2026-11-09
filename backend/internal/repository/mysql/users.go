@@ -153,3 +153,20 @@ func (r *UserRepo) CountAdmins(ctx context.Context) (int, error) {
 	err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM users WHERE role = 'admin'`).Scan(&n)
 	return n, err
 }
+
+func (r *UserRepo) ActiveUserIDs(ctx context.Context) ([]int64, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT id FROM users WHERE role = 'user' AND status = 'active' ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}

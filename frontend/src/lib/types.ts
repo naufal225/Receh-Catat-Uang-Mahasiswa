@@ -294,3 +294,24 @@ export interface GoalContribution {
   occurredOn: string;
   createdAt: string;
 }
+
+/* ---------- Notifications ---------- */
+export type NotificationKind =
+  | 'bill_due' | 'bill_failed' | 'budget_warning' | 'budget_over'
+  | 'low_balance' | 'goal_achieved' | 'daily_reminder' | 'weekly_summary';
+
+export interface AppNotification {
+  id: number;
+  kind: NotificationKind;
+  title: string;
+  body: string;
+  link: string;
+  readAt: string | null;
+  createdAt: string;
+}
+
+export interface NotificationPrefs {
+  kinds: Record<NotificationKind, boolean>;
+  lowBalanceThreshold: number;
+  reminderHour: number;
+}

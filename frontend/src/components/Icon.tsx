@@ -42,6 +42,7 @@ const paths: Record<string, string> = {
   swap: 'M7 20V4M3 8l4-4 4 4M17 4v16M13 16l4 4 4-4',
   copy: 'M9 9h11v11H9zM5 15H4V4h11v1',
   target: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM12 12h.01',
+  bell: 'M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.94 1.94 0 0 0 3.4 0',
   table: 'M3 5h18v14H3zM3 10h18M3 15h18M9 5v14',
 };
 
