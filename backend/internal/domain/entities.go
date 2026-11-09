@@ -151,6 +151,8 @@ type Transaction struct {
 	// TransferID is set on both legs of a transfer and on its fee expense. Such
 	// rows change only through the transfer they belong to.
 	TransferID *int64 `json:"transferId"`
+	// ImportBatchID is set on transactions created by a statement import.
+	ImportBatchID *int64 `json:"importBatchId,omitempty"`
 	// For a transfer leg: the wallet on the other side, and the fee the source paid.
 	CounterpartName  string    `json:"counterpartName,omitempty"`
 	CounterpartColor string    `json:"counterpartColor,omitempty"`

@@ -69,6 +69,7 @@ export interface Transaction {
   counterpartName?: string;
   counterpartColor?: string;
   transferFee?: number;
+  importBatchId?: number;
   createdAt: string;
 }
 
@@ -314,4 +315,61 @@ export interface NotificationPrefs {
   kinds: Record<NotificationKind, boolean>;
   lowBalanceThreshold: number;
   reminderHour: number;
+}
+
+/* ---------- Faster entry ---------- */
+export interface QuickDraft {
+  type: TxType;
+  amount: number;
+  name: string;
+  walletId: number;
+  categoryId: number;
+  occurredOn: string;
+}
+
+export interface TxSuggestion {
+  name: string;
+  type: TxType;
+  categoryId: number;
+  walletId: number;
+  amount: number;
+  uses: number;
+}
+
+export interface StatementMapping {
+  date: number;
+  description: number;
+  amount: number;
+  debit: number;
+  credit: number;
+  headerRow: number;
+}
+
+export interface ImportRow {
+  line: number;
+  date: string;
+  name: string;
+  amount: number;
+  type: TxType;
+  categoryId: number;
+  duplicate: boolean;
+}
+
+export interface ImportPreview {
+  headers: string[] | null;
+  mapping: StatementMapping;
+  skipped: number;
+  rows: ImportRow[];
+}
+
+export interface ImportBatch {
+  id: number;
+  walletId: number;
+  walletName: string;
+  fileName: string;
+  rows: number;
+  totalIn: number;
+  totalOut: number;
+  remaining: number;
+  createdAt: string;
 }

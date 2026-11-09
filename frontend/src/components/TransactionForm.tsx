@@ -1,12 +1,13 @@
 // The global "Catat" modal: one place to record an expense, an income or a
 // transfer between wallets. Designed to finish in a few taps: kind, amount,
 // name, then wallet and category as chips.
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { api, ApiError } from '../lib/api';
 import { useFinance, type EntryMode } from '../lib/finance';
 import { formatRp, shiftISO, todayISO } from '../lib/format';
 import { useFetch } from '../lib/hooks';
-import type { BudgetMonth, TxType } from '../lib/types';
+import type { BudgetMonth, QuickDraft, TxSuggestion, TxType } from '../lib/types';
+import { Icon } from './Icon';
 import { TransferForm } from './TransferForm';
 import { AmountInput, Empty, Field, Link, Modal, Segmented, useToast } from './ui';
 
@@ -28,6 +29,8 @@ function EntryBody() {
   const { txModal } = useFinance();
   const [mode, setMode] = useState<EntryMode>(txModal.mode);
   const editing = !!txModal.edit || !!txModal.transferId;
+  // A quick-entry result prefills the form; its counter remounts the form.
+  const [draft, setDraft] = useState<{ d: QuickDraft; n: number } | null>(null);
 
   // A new entry may switch between all three kinds. An edited transaction may
   // flip between income and expense; a transfer stays a transfer.
@@ -39,15 +42,48 @@ function EntryBody() {
 
   return (
     <div className="form-grid">
+      {!editing && mode !== 'transfer' && (
+        <QuickEntry onDraft={(d) => { setMode(d.type); setDraft((p) => ({ d, n: (p?.n ?? 0) + 1 })); }} />
+      )}
       {!txModal.transferId && <Segmented big label="Jenis transaksi" value={mode} onChange={setMode} options={options} />}
       {mode === 'transfer'
         ? <TransferForm transferId={txModal.transferId} fromWalletId={txModal.fromWalletId} />
-        : <TransactionForm type={mode} />}
+        : <TransactionForm key={draft?.n ?? 0} type={mode} draft={draft?.d} />}
     </div>
   );
 }
 
-function TransactionForm({ type }: { type: TxType }) {
+// QuickEntry turns one line like "makan siang 25rb gopay kemarin" into a
+// filled form; the person still reviews and presses Simpan.
+function QuickEntry({ onDraft }: { onDraft: (d: QuickDraft) => void }) {
+  const [text, setText] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  async function parse() {
+    if (!text.trim()) return;
+    setBusy(true);
+    setError('');
+    try {
+      onDraft(await api.post<QuickDraft>('/quick/parse', { text }));
+    } catch (e) {
+      setError((e as ApiError).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="quick-entry">
+      <label htmlFor="quick" className="sr-only">Ketik cepat</label>
+      <span className="quick-icon" aria-hidden="true"><Icon name="bolt" size={16} /></span>
+      <input id="quick" className="input" value={text} onChange={(e) => setText(e.target.value)} placeholder="Ketik cepat: makan 25rb gopay"
+        autoComplete="off" onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); parse(); } }} />
+      <button type="button" className="btn btn-ghost btn-sm" onClick={parse} disabled={busy || !text.trim()}>{busy ? '…' : 'Isi'}</button>
+      {error && <span className="field-error" style={{ gridColumn: '1 / -1' }}>{error}</span>}
+    </div>
+  );
+}
+
+function TransactionForm({ type, draft }: { type: TxType; draft?: QuickDraft }) {
   const { wallets, categories, txModal, closeTx, changed, version } = useFinance();
   // This month's budgets, to show what a new expense leaves in its category.
   const { data: budgets } = useFetch<BudgetMonth>(type === 'expense' ? `/budgets?v=${version}` : null);
@@ -55,11 +91,19 @@ function TransactionForm({ type }: { type: TxType }) {
   const edit = txModal.edit;
   const today = todayISO();
 
-  const [amount, setAmount] = useState(edit?.amount ?? 0);
-  const [name, setName] = useState(edit?.name ?? '');
-  const [walletId, setWalletId] = useState(edit?.walletId ?? txModal.fromWalletId ?? wallets[0]?.id ?? 0);
-  const [categoryId, setCategoryId] = useState(edit?.categoryId ?? 0);
-  const [date, setDate] = useState(edit?.occurredOn ?? today);
+  const [amount, setAmount] = useState(edit?.amount ?? draft?.amount ?? 0);
+  const [name, setName] = useState(edit?.name ?? draft?.name ?? '');
+  const [walletId, setWalletId] = useState(edit?.walletId ?? (draft?.walletId || undefined) ?? txModal.fromWalletId ?? wallets[0]?.id ?? 0);
+  const [categoryId, setCategoryId] = useState(edit?.categoryId ?? draft?.categoryId ?? 0);
+  const [date, setDate] = useState(edit?.occurredOn ?? draft?.occurredOn ?? today);
+  const suggest = useSuggestions(name, !edit);
+  function pickSuggestion(s: TxSuggestion) {
+    setName(s.name);
+    if (s.type === type && categories.some((c) => c.id === s.categoryId)) setCategoryId(s.categoryId);
+    if (wallets.some((w) => w.id === s.walletId)) setWalletId(s.walletId);
+    if (!amount) setAmount(s.amount);
+    suggest.close();
+  }
   const [errors, setErrors] = useState<Errors>({});
   const [saving, setSaving] = useState(false);
 
@@ -126,8 +170,27 @@ function TransactionForm({ type }: { type: TxType }) {
       </Field>
 
       <Field label="Nama kegiatan" htmlFor="tx-name" error={errors.name}>
-        <input id="tx-name" className="input" value={name} maxLength={80} onChange={(e) => setName(e.target.value)}
-          placeholder={type === 'expense' ? 'Contoh: Makan siang di kantin' : 'Contoh: Kiriman orang tua'} aria-invalid={!!errors.name || undefined} />
+        <div className="suggest-wrap">
+          <input id="tx-name" className="input" value={name} maxLength={80} onChange={(e) => { setName(e.target.value); suggest.open(); }}
+            onBlur={() => setTimeout(suggest.close, 150)} onKeyDown={(e) => e.key === 'Escape' && suggest.close()}
+            placeholder={type === 'expense' ? 'Contoh: Makan siang di kantin' : 'Contoh: Kiriman orang tua'} aria-invalid={!!errors.name || undefined}
+            role="combobox" aria-expanded={suggest.items.length > 0} aria-controls="tx-suggest" aria-autocomplete="list" autoComplete="off" />
+          {suggest.items.length > 0 && (
+            <ul id="tx-suggest" className="suggest-list" role="listbox">
+              {suggest.items.map((s) => {
+                const cat = categories.find((c) => c.id === s.categoryId);
+                return (
+                  <li key={s.name} role="option" aria-selected={false}>
+                    <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => pickSuggestion(s)}>
+                      <span>{s.name}</span>
+                      <small>{cat?.name ?? ''} · {formatRp(s.amount)} · {s.uses}×</small>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
       </Field>
 
       <Field label="Dompet" error={errors.walletId}>
@@ -174,4 +237,30 @@ function TransactionForm({ type }: { type: TxType }) {
       </div>
     </form>
   );
+}
+
+/** Past names matching what is typed (debounced), from the user's own history. */
+function useSuggestions(name: string, enabled: boolean) {
+  const [items, setItems] = useState<TxSuggestion[]>([]);
+  const [shown, setShown] = useState(false);
+  const last = useRef('');
+  useEffect(() => {
+    const q = name.trim();
+    if (!enabled || !shown || q.length < 2) {
+      setItems([]);
+      return;
+    }
+    const t = setTimeout(() => {
+      last.current = q;
+      api.get<TxSuggestion[]>(`/transactions/suggest?q=${encodeURIComponent(q)}`)
+        .then((list) => {
+          // Ignore stale answers, and hide the list when the only match is what is typed.
+          if (last.current !== q) return;
+          setItems(list.filter((s) => s.name.toLowerCase() !== q.toLowerCase()));
+        })
+        .catch(() => setItems([]));
+    }, 220);
+    return () => clearTimeout(t);
+  }, [name, enabled, shown]);
+  return { items, open: () => setShown(true), close: () => { setShown(false); setItems([]); } };
 }

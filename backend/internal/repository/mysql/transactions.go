@@ -19,7 +19,7 @@ func NewTransactionRepo(db *sql.DB) *TransactionRepo { return &TransactionRepo{d
 const txSelect = `
 	SELECT t.id, t.user_id, t.wallet_id, w.name, w.color,
 	       COALESCE(t.category_id, 0), COALESCE(c.name, ''), COALESCE(c.color, ''),
-	       t.type, t.name, t.amount, t.occurred_on, t.recurring_id, t.transfer_id,
+	       t.type, t.name, t.amount, t.occurred_on, t.recurring_id, t.transfer_id, t.import_batch_id,
 	       COALESCE(cw.name, ''), COALESCE(cw.color, ''),
 	       CASE WHEN t.type = 'transfer_out' THEN COALESCE(tr.fee, 0) ELSE 0 END,
 	       t.created_at
@@ -33,10 +33,10 @@ const txSelect = `
 
 func scanTx(row interface{ Scan(...any) error }) (*domain.Transaction, error) {
 	var t domain.Transaction
-	var recurring, transfer sql.NullInt64
+	var recurring, transfer, batch sql.NullInt64
 	var created int64
 	err := row.Scan(&t.ID, &t.UserID, &t.WalletID, &t.WalletName, &t.WalletColor, &t.CategoryID, &t.CategoryName,
-		&t.CategoryColor, &t.Type, &t.Name, &t.Amount, &t.OccurredOn, &recurring, &transfer,
+		&t.CategoryColor, &t.Type, &t.Name, &t.Amount, &t.OccurredOn, &recurring, &transfer, &batch,
 		&t.CounterpartName, &t.CounterpartColor, &t.TransferFee, &created)
 	if err != nil {
 		return nil, mapNoRows(err)
@@ -46,6 +46,9 @@ func scanTx(row interface{ Scan(...any) error }) (*domain.Transaction, error) {
 	}
 	if transfer.Valid {
 		t.TransferID = &transfer.Int64
+	}
+	if batch.Valid {
+		t.ImportBatchID = &batch.Int64
 	}
 	t.CreatedAt = fromUnix(created)
 	return &t, nil
@@ -83,14 +86,11 @@ func nullID(id int64) any {
 
 func insertTx(ctx context.Context, tx *sql.Tx, t *domain.Transaction) error {
 	t.CreatedAt = time.Now().UTC()
-	var transfer any
-	if t.TransferID != nil {
-		transfer = *t.TransferID
-	}
 	res, err := tx.ExecContext(ctx,
-		`INSERT INTO transactions (user_id, wallet_id, category_id, type, name, amount, occurred_on, recurring_id, transfer_id, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		t.UserID, t.WalletID, nullID(t.CategoryID), t.Type, t.Name, t.Amount, t.OccurredOn, t.RecurringID, transfer, unix(t.CreatedAt))
+		`INSERT INTO transactions (user_id, wallet_id, category_id, type, name, amount, occurred_on, recurring_id, transfer_id, import_batch_id, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		t.UserID, t.WalletID, nullID(t.CategoryID), t.Type, t.Name, t.Amount, t.OccurredOn, t.RecurringID, nullInt(t.TransferID),
+		nullInt(t.ImportBatchID), unix(t.CreatedAt))
 	if err != nil {
 		return err
 	}

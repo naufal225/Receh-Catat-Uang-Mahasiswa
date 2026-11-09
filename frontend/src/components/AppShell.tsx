@@ -18,6 +18,7 @@ const userNav: NavItem[] = [
   { to: '/app/anggaran', label: 'Anggaran', icon: 'pie', short: 'Anggaran' },
   { to: '/app/target', label: 'Target tabungan', icon: 'target' },
   { to: '/app/rutin', label: 'Rutin & rencana', icon: 'repeat' },
+  { to: '/app/impor', label: 'Impor mutasi', icon: 'upload' },
   { to: '/app/kategori', label: 'Kategori', icon: 'tag' },
   { to: '/app/laporan', label: 'Laporan bulanan', icon: 'file' },
   { to: '/app/notifikasi', label: 'Notifikasi', icon: 'bell' },
