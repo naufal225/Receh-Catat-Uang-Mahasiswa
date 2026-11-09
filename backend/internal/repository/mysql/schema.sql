@@ -122,11 +122,13 @@ CREATE TABLE IF NOT EXISTS transactions (
     occurred_on  DATE        NOT NULL,
     recurring_id BIGINT      NULL,
     transfer_id  BIGINT      NULL,
+    import_batch_id BIGINT   NULL,
     created_at   BIGINT      NOT NULL,
     KEY idx_tx_user_date (user_id, occurred_on DESC, id DESC),
     KEY idx_tx_wallet (wallet_id),
     KEY idx_tx_category (category_id),
     KEY idx_tx_transfer (transfer_id),
+    KEY idx_tx_import (import_batch_id),
     -- A rule posts at most once per date, so a restart or retry never double
     -- charges. Rows without a rule have a NULL recurring_id, which never collides.
     UNIQUE KEY uq_tx_occurrence (recurring_id, occurred_on),
@@ -275,4 +277,20 @@ CREATE TABLE IF NOT EXISTS notification_prefs (
     CONSTRAINT fk_nprefs_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
     CONSTRAINT ck_nprefs_hour CHECK (reminder_hour BETWEEN 0 AND 23),
     CONSTRAINT ck_nprefs_threshold CHECK (low_balance_threshold >= 0)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci;
+
+-- One imported statement; its transactions carry import_batch_id so the whole
+-- import can be undone at once.
+CREATE TABLE IF NOT EXISTS import_batches (
+    id         BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    user_id    BIGINT       NOT NULL,
+    wallet_id  BIGINT       NOT NULL,
+    file_name  VARCHAR(120) NOT NULL DEFAULT '',
+    row_count  INT          NOT NULL,
+    total_in   BIGINT       NOT NULL,
+    total_out  BIGINT       NOT NULL,
+    created_at BIGINT       NOT NULL,
+    KEY idx_import_user (user_id, created_at),
+    CONSTRAINT fk_import_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+    CONSTRAINT fk_import_wallet FOREIGN KEY (wallet_id) REFERENCES wallets (id)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci;

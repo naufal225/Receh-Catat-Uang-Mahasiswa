@@ -54,9 +54,19 @@ func writeError(w http.ResponseWriter, err error) {
 
 // readJSON decodes a small JSON body into dst and answers the error itself.
 func readJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
-	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
+	return readJSONLimit(w, r, dst, 64<<10)
+}
+
+// readJSONLimit is readJSON with a custom body cap (statement imports carry a
+// whole CSV file).
+func readJSONLimit(w http.ResponseWriter, r *http.Request, dst any, limit int64) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, limit)
 	if err := json.NewDecoder(r.Body).Decode(dst); err != nil {
 		msg := "Data yang dikirim tidak bisa dibaca."
+		var tooBig *http.MaxBytesError
+		if errors.As(err, &tooBig) {
+			msg = "Berkas terlalu besar."
+		}
 		if errors.Is(err, io.EOF) {
 			msg = "Data kosong."
 		}

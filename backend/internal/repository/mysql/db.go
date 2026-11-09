@@ -128,6 +128,7 @@ func applySchema(db *sql.DB) error {
 // after a database was first created. Each runs only if its column is missing.
 var migrations = []struct{ table, column, ddl string }{
 	{"users", "google_sub", "ALTER TABLE users ADD COLUMN google_sub VARCHAR(64) NULL AFTER password_hash, ADD UNIQUE KEY uq_users_google (google_sub)"},
+	{"transactions", "import_batch_id", "ALTER TABLE transactions ADD COLUMN import_batch_id BIGINT NULL AFTER transfer_id, ADD KEY idx_tx_import (import_batch_id)"},
 }
 
 func migrate(db *sql.DB) error {

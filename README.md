@@ -126,6 +126,10 @@ Konfigurasi lain ada di `backend/.env.example`. Yang penting di produksi: `COOKI
 | Landing page + registrasi tanpa OTP | `/` dan `/daftar` |
 | Login dengan Google (OAuth) | Tombol di `/masuk` & `/daftar`; status di **Perangkat & keamanan → Metode masuk**. Lihat [bagian 3c](#3c-masuk-dengan-google-oauth-20--pkce) |
 | Paket Gratis/Premium, hadiah Premium untuk keluarga, kode undangan | **Langganan** (pengguna), **Pengguna → Premium** dan **Kode undangan** (admin). Lihat [bagian 3-0](#3-0-edisi-branch-dan-paket-freemium) |
+| Anggaran per kategori | **Anggaran**: batas bulanan, status aman / hampir habis / lewat, sisa per hari; kartu di dashboard; sisa anggaran tampil saat mencatat |
+| Target tabungan | **Target tabungan**: setoran manual atau ikut saldo dompet khusus; setoran per minggu agar tepat waktu |
+| Notifikasi & pengingat | Lonceng (8 jenis: anggaran, tagihan besok/gagal, saldo menipis, target tercapai, pengingat malam, ringkasan Senin); atur di **Notifikasi** |
+| Pencatatan cepat | Kotak **Ketik cepat** di modal Catat ("makan siang 25rb gopay kemarin"), saran nama dari riwayat, **Impor mutasi** CSV (Premium) yang bisa dibatalkan |
 
 **Tangguhkan vs bekukan:**
 - **Ditangguhkan:** tidak bisa masuk sama sekali, semua sesi langsung dicabut, dan alasan ditampilkan saat mencoba login.
@@ -155,6 +159,11 @@ backend/
    │  ├─ category.go               CRUD kategori; tolak hapus kategori yang masih dipakai
    │  ├─ transaction.go            Validasi + kunci mutex dompet → repository (atomik)
    │  ├─ transfer.go               Pindah uang + biaya admin; kunci mutex kedua dompet; biaya terakhir per rute
+   │  ├─ budget.go                 Anggaran bulanan; terpakai dihitung dari transaksi, bukan disimpan
+   │  ├─ goal.go                   Target tabungan (setoran manual / ikut saldo dompet), mutex per target
+   │  ├─ notification.go           Antrean channel + worker goroutine (peristiwa) + scheduler + worker pool (waktu)
+   │  ├─ entry.go                  Ketik cepat, saran nama, pratinjau & impor CSV per batch, batalkan impor
+   │  ├─ membership.go             Paket Gratis/Premium, hadiah admin, kode undangan
    │  ├─ recurring.go              Jadwal rutin + scheduler (ticker) + worker pool goroutine
    │  ├─ dashboard.go              Bucket per hari/minggu/bulan/tahun; query paralel; cache berversi
    │  ├─ report.go                 Kumpulkan data bulanan secara paralel → ReportRenderer (PDF)
@@ -311,6 +320,9 @@ bersama (atau dimatikan dengan TTL `0`), karena pencabutan sesi di instance A ti
 | `platform/cache` `TTL` | `sync.RWMutex` + goroutine janitor per cache | Banyak request membaca cache bersamaan, satu menulis; entri kedaluwarsa dibersihkan tiap menit |
 | `platform/cache` `Versions` | `sync.Mutex` | Versi data per user dinaikkan dari request dan scheduler sekaligus |
 | `repository/cached` epoch | `sync/atomic` | Invalidasi yang berbarengan dengan pembacaan DB tidak "hilang" |
+| `usecase/notification.go` | channel + worker goroutine; ticker + pool 4 goroutine | Notifikasi anggaran muncul sesaat setelah belanja tanpa memperlambat request; penyapuan berkala untuk tagihan besok, pengingat malam, ringkasan Senin |
+| `usecase/goal.go` `perGoal` | `keymutex` per target | Dua penarikan bersamaan tidak membuat tabungan minus (diuji 20 paralel) |
+| `platform/cache` `Take` | `sync.RWMutex` (ambil+hapus atomik) | State OAuth tidak bisa dipakai dua kali |
 
 Lapisan kedua pertahanan ada di database: `CHECK (balance >= 0)`, `UPDATE … WHERE balance + ? >= 0`
 (InnoDB mengunci baris dompet sampai commit), saldo transfer diubah urut id dompet agar urutan kunci
@@ -399,3 +411,11 @@ riwayat selalu konsisten tanpa state management tambahan.
   (alur yang sedang berjalan saat server di-restart harus diulang).
 - PDF memakai font bawaan Helvetica, jadi karakter di luar Latin (emoji, aksara non-Latin) tercetak sebagai "?".
 - Admin pertama tidak bisa diubah statusnya oleh admin, dan admin tidak punya fitur keuangan.
+
+## 7. Fase 1 "layak jual": catatan desain singkat
+
+- **Anggaran** tidak menyimpan angka "terpakai"; selalu dihitung dari transaksi bulan itu, jadi edit/hapus transaksi dan biaya transfer otomatis tercermin.
+- **Target tabungan** punya dua mode. *Setoran manual* = celengan virtual (catatan alokasi, saldo dompet tidak berubah). *Dompet khusus* = progres mengikuti saldo dompet; menabung cukup dengan Transfer.
+- **Notifikasi**: setiap penulisan data memanggil `ChangeNotifiers` (versi cache dashboard + antrean notifikasi). Event yang sama tidak pernah dikirim dua kali karena `ref_key` unik per pengguna. Notifikasi lebih dari 90 hari dihapus otomatis.
+- **Ketik cepat** adalah fungsi murni `domain.ParseQuick` (diuji dengan tabel kalimat); bila teks tidak menyebut dompet/kategori, dipakai yang terakhir untuk nama yang sama.
+- **Impor CSV** (`domain.ParseStatement`) mengenali format BCA (`DD/MM`, `DB`/`CR`), kolom Debit/Kredit e-wallet, angka `1.250.000,00` maupun `1,250,000.00`, dan file tanpa header. Satu impor = satu batch: saldo bergerak sekali sebesar selisih bersih, dan bisa dibatalkan sekaligus.

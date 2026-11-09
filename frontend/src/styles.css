@@ -2436,3 +2436,101 @@ dialog.modal[open] {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
+
+/* === QUICK ENTRY, SUGGESTIONS, IMPORT === */
+.quick-entry {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 6px 6px 12px;
+  border: 1.5px dashed var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+.quick-entry .input {
+  border: 0;
+  background: transparent;
+  padding-left: 0;
+  box-shadow: none;
+}
+.quick-icon {
+  color: var(--accent-ink);
+  background: var(--accent);
+  border-radius: 8px;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+}
+.suggest-wrap {
+  position: relative;
+}
+.suggest-list {
+  position: absolute;
+  z-index: 5;
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+}
+.suggest-list button {
+  display: grid;
+  width: 100%;
+  gap: 1px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.suggest-list button:hover,
+.suggest-list button:focus-visible {
+  background: var(--surface-2);
+}
+.suggest-list small {
+  color: var(--muted);
+  font-size: 12px;
+}
+.file-drop {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px;
+  border: 1.5px dashed var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  cursor: pointer;
+  font-weight: 600;
+}
+.file-drop:focus-within {
+  border-color: var(--focus);
+}
+.import-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  align-items: baseline;
+  font-size: 14px;
+}
+.import-table {
+  max-height: 460px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+.select-sm {
+  min-height: 34px;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  font-size: 13px;
+}

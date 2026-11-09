@@ -104,6 +104,7 @@ func New(p Params) *App {
 		Budgets:       budgets,
 		Goals:         goals,
 		Notifications: notifications,
+		Entries:       usecase.NewEntryService(mysql.NewEntryRepo(p.DB), wallets, categories, p.Clock, locks, membership, changes),
 	}
 	server := deliveryhttp.NewServer(svc, deliveryhttp.Options{
 		CookieSecure: p.CookieSecure, TrustProxy: p.TrustProxy, StaticDir: p.StaticDir,

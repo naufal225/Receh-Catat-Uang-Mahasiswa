@@ -26,6 +26,7 @@ type Services struct {
 	Budgets       *usecase.BudgetService
 	Goals         *usecase.GoalService
 	Notifications *usecase.NotificationService
+	Entries       *usecase.EntryService
 }
 
 type Options struct {
@@ -108,6 +109,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/notifications/read", s.userRead(s.markRead))
 	mux.HandleFunc("GET /api/notifications/prefs", s.userRead(s.notificationPrefs))
 	mux.HandleFunc("PUT /api/notifications/prefs", s.userWrite(s.saveNotificationPrefs))
+
+	mux.HandleFunc("POST /api/quick/parse", s.userRead(s.quickParse))
+	mux.HandleFunc("GET /api/transactions/suggest", s.userRead(s.suggestNames))
+	mux.HandleFunc("POST /api/import/preview", s.userWrite(s.importPreview))
+	mux.HandleFunc("POST /api/import/commit", s.userWrite(s.importCommit))
+	mux.HandleFunc("GET /api/import/batches", s.userRead(s.importBatches))
+	mux.HandleFunc("DELETE /api/import/batches/{id}", s.userWrite(s.importUndo))
 
 	mux.HandleFunc("GET /api/membership", s.userRead(s.membership))
 	mux.HandleFunc("POST /api/membership/redeem", s.userWrite(s.redeemCode))
