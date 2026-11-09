@@ -88,7 +88,7 @@ func Load() (*Config, error) {
 		AdminEmail:         env("ADMIN_EMAIL", "admin@receh.local"),
 		AdminPassword:      os.Getenv("ADMIN_PASSWORD"),
 		SweepEvery:         sweep,
-		BillingEnabled:     env("BILLING_ENABLED", "true") != "false",
+		BillingEnabled:     envBool("BILLING_ENABLED", defaultBillingEnabled),
 		GoogleClientID:     googleID,
 		GoogleClientSecret: googleSecret,
 		GoogleRedirectURL:  googleRedirect,
@@ -121,6 +121,17 @@ func cacheTTL(key, fallback string) (time.Duration, error) {
 		return 0, fmt.Errorf("%s must be a duration such as 30s, or 0 to disable", key)
 	}
 	return d, nil
+}
+
+// envBool reads "true"/"false"; anything else, or unset, keeps the fallback.
+func envBool(key string, fallback bool) bool {
+	switch os.Getenv(key) {
+	case "true":
+		return true
+	case "false":
+		return false
+	}
+	return fallback
 }
 
 func env(key, fallback string) string {
