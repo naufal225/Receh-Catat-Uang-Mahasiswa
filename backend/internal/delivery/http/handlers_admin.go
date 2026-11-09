@@ -15,6 +15,10 @@ func (s *Server) adminListUsers(w http.ResponseWriter, r *http.Request, _ *domai
 		writeError(w, err)
 		return
 	}
+	if err := s.svc.Membership.MarkPlans(r.Context(), page.Items); err != nil {
+		writeError(w, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, page)
 }
 

@@ -40,6 +40,7 @@ const paths: Record<string, string> = {
   menu: 'M4 7h16M4 12h16M4 17h16',
   transfer: 'M4 8h15M15 4l4 4-4 4M20 16H5M9 12l-4 4 4 4',
   swap: 'M7 20V4M3 8l4-4 4 4M17 4v16M13 16l4 4 4-4',
+  copy: 'M9 9h11v11H9zM5 15H4V4h11v1',
   table: 'M3 5h18v14H3zM3 10h18M3 15h18M9 5v14',
 };
 

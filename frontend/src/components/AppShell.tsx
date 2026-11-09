@@ -18,11 +18,13 @@ const userNav: NavItem[] = [
   { to: '/app/kategori', label: 'Kategori', icon: 'tag' },
   { to: '/app/laporan', label: 'Laporan bulanan', icon: 'file' },
   { to: '/app/keamanan', label: 'Perangkat & keamanan', icon: 'device' },
+  { to: '/app/langganan', label: 'Langganan', icon: 'sparkle' },
 ];
 
 const adminNav: NavItem[] = [
   { to: '/admin', label: 'Pengguna', icon: 'users', short: 'Pengguna' },
   { to: '/admin/audit', label: 'Audit log', icon: 'shield', short: 'Audit' },
+  { to: '/admin/kode', label: 'Kode undangan', icon: 'sparkle', short: 'Kode' },
   { to: '/admin/keamanan', label: 'Perangkat saya', icon: 'device', short: 'Perangkat' },
 ];
 
@@ -42,10 +44,12 @@ function ThemeToggle() {
 
 export function AppShell({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth();
-  const { openTx, readOnly } = useFinance();
+  const { openTx, readOnly, membership } = useFinance();
   const { path } = useLocation();
   const isAdmin = user?.role === 'admin';
-  const nav = isAdmin ? adminNav : userNav;
+  // "Langganan" only exists where something is sold (billing on).
+  const nav = isAdmin ? adminNav : userNav.filter((n) => n.to !== '/app/langganan' || membership?.billingEnabled);
+  const isPremium = !isAdmin && membership?.plan === 'premium' && membership.billingEnabled;
   const current = (to: string) => (to === '/app' || to === '/admin' ? path === to : path.startsWith(to));
 
   // "N" opens the quick-add form from anywhere, unless the user is typing.
@@ -90,7 +94,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <div className="user-chip">
             <div className="avatar">{initial(user?.name ?? '')}</div>
             <div>
-              <strong>{user?.name}</strong>
+              <strong>{user?.name}{isPremium && <span className="badge badge-accent premium-tag"><Icon name="sparkle" size={11} /> Premium</span>}</strong>
               <span>{user?.email}</span>
             </div>
           </div>
@@ -113,6 +117,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               <Link to="/app/kategori" className="icon-btn" aria-label="Kategori"><Icon name="tag" /></Link>
               <Link to="/app/laporan" className="icon-btn" aria-label="Laporan"><Icon name="file" /></Link>
               <Link to="/app/keamanan" className="icon-btn" aria-label="Perangkat & keamanan"><Icon name="device" /></Link>
+              {membership?.billingEnabled && <Link to="/app/langganan" className="icon-btn" aria-label="Langganan"><Icon name="sparkle" /></Link>}
             </>
           )}
           <ThemeToggle />
@@ -133,7 +138,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         {children}
       </main>
 
-      <nav className="bottom-nav" aria-label="Navigasi bawah" style={isAdmin ? { gridTemplateColumns: 'repeat(3, 1fr)' } : undefined}>
+      <nav className="bottom-nav" aria-label="Navigasi bawah" style={isAdmin ? { gridTemplateColumns: `repeat(${mobileItems.length}, 1fr)` } : undefined}>
         {mobileItems.slice(0, 2).map((n) => (
           <Link key={n.to} to={n.to} aria-current={current(n.to) ? 'page' : undefined}>
             <Icon name={n.icon} /> {n.short}

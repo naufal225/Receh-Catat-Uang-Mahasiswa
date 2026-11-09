@@ -56,7 +56,7 @@ func run() error {
 		DB: db, Clock: usecase.RealClock{Loc: cfg.Location}, BcryptCost: bcrypt.DefaultCost + 2,
 		GeoIPURL: cfg.GeoIPURL, CookieSecure: cfg.CookieSecure, TrustProxy: cfg.TrustProxy, StaticDir: staticDir,
 		SessionCacheTTL: cfg.SessionTTL, DashboardCacheTTL: cfg.DashboardTTL,
-		Google: googleProvider(cfg),
+		Google: googleProvider(cfg), BillingEnabled: cfg.BillingEnabled,
 	})
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

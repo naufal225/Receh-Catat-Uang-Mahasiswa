@@ -125,6 +125,7 @@ Konfigurasi lain ada di `backend/.env.example`. Yang penting di produksi: `COOKI
 | Admin: audit log (lokasi, waktu, IP, perangkat) | **Audit log** (`/admin/audit`) |
 | Landing page + registrasi tanpa OTP | `/` dan `/daftar` |
 | Login dengan Google (OAuth) | Tombol di `/masuk` & `/daftar`; status di **Perangkat & keamanan → Metode masuk**. Lihat [bagian 3c](#3c-masuk-dengan-google-oauth-20--pkce) |
+| Paket Gratis/Premium, hadiah Premium untuk keluarga, kode undangan | **Langganan** (pengguna), **Pengguna → Premium** dan **Kode undangan** (admin). Lihat [bagian 3-0](#3-0-edisi-branch-dan-paket-freemium) |
 
 **Tangguhkan vs bekukan:**
 - **Ditangguhkan:** tidak bisa masuk sama sekali, semua sesi langsung dicabut, dan alasan ditampilkan saat mencoba login.
@@ -203,6 +204,37 @@ React TransactionForm ──POST /api/transactions──► middleware: recover 
         4. unlock, lalu versi data user naik → cache dashboard user ini tidak terpakai lagi
    ◄ 201 JSON ── FinanceProvider.changed() → dashboard, saldo, riwayat memuat ulang
 ```
+
+### 3-0. Edisi, branch, dan paket (freemium)
+
+| Branch | Untuk | `BILLING_ENABLED` |
+|---|---|---|
+| `main` | Arsip versi pertama | — |
+| `b2c` | **Semua pengembangan baru**; versi yang dijual (freemium) | `true` (default) |
+| `personal` | Pemakaian pribadi; menerima `git merge b2c` | `false` → semua akun Premium |
+
+Satu kode, beda mode: `usecase/membership.go` (`MembershipService`) adalah satu-satunya tempat yang
+menjawab "apakah pengguna ini Premium?". Use case lain bertanya lewat interface `PlanLimits`
+(contoh: `WalletService.Create` menolak dompet ke-4 di paket Gratis dengan kode `PLAN_LIMIT`).
+
+| | Gratis | Premium |
+|---|---|---|
+| Dompet aktif | 3 | Tanpa batas |
+| Anggaran per kategori | 3 | Tanpa batas |
+| Target tabungan | 1 | Tanpa batas |
+| Impor mutasi CSV | — | ✓ |
+
+Premium didapat dari tabel `entitlements` (riwayat tidak pernah dihapus; pencabutan mengisi `revoked_at`):
+- **Hadiah admin** (*Admin → Pengguna → Premium*): selamanya atau sampai tanggal, dengan catatan
+  (mis. "Keluarga"), bisa dicabut, tercatat di audit log.
+- **Kode undangan** (*Admin → Kode undangan*): kuota, durasi (hari/selamanya), batas tanggal penukaran.
+  Penukaran mengunci baris kode (`SELECT … FOR UPDATE`), sehingga kuota tidak bisa terlewati walau
+  ditukar bersamaan (diuji 30 penukaran paralel, kuota 5 → tepat 5 berhasil); satu akun satu kali per kode
+  (unique index); 10 percobaan salah per jam per akun.
+- **Berbayar**: disiapkan (`source='paid'`), payment gateway menyusul.
+
+Dengan `BILLING_ENABLED=false`, menu Langganan disembunyikan, semua batas hilang, dan admin tetap bisa
+melihat datanya.
 
 ### 3a. Transfer & biaya admin (keputusan)
 

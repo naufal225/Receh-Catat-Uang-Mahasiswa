@@ -1968,3 +1968,98 @@ dialog.modal[open] {
 .method-row .badge {
   white-space: normal;
 }
+
+/* === MEMBERSHIP === */
+.premium-tag {
+  margin-left: 6px;
+  font-size: 10.5px;
+  padding: 1px 7px;
+  vertical-align: 2px;
+}
+/* The user chip styles every span as a muted block line; the tag is neither. */
+.user-chip .premium-tag {
+  display: inline-flex;
+  color: var(--accent-ink);
+  font-size: 10.5px;
+  overflow: visible;
+}
+.plan-card {
+  max-width: 640px;
+}
+.plan-card.is-premium {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 12%, var(--surface)), var(--surface) 60%);
+}
+.plan-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+  font-size: 13.5px;
+}
+.plan-card h2 {
+  font-size: 22px;
+  margin-bottom: 4px;
+}
+.plan-table th:not(:first-child),
+.plan-table td:not(:first-child) {
+  text-align: center;
+  white-space: nowrap;
+}
+.plan-chip {
+  border: 0;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+}
+.promo-code {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface-2);
+  padding: 3px 8px;
+  font-weight: 700;
+  cursor: pointer;
+  color: var(--ink);
+}
+.promo-code:hover {
+  border-color: var(--ink-2);
+}
+.meter {
+  height: 5px;
+  margin-top: 5px;
+  max-width: 90px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+.meter span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+.ent-list {
+  display: grid;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+.ent-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  font-size: 14px;
+}
+.ent-row + .ent-row {
+  border-top: 1px solid var(--line);
+}
+.ent-row .sub {
+  display: block;
+  color: var(--muted);
+  font-size: 12.5px;
+}

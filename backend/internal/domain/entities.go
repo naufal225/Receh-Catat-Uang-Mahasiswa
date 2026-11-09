@@ -44,6 +44,8 @@ type User struct {
 	// Derived for the client: which sign-in methods this account has.
 	HasPassword  bool `json:"hasPassword"`
 	GoogleLinked bool `json:"googleLinked"`
+	// Plan is filled only where it is shown (the admin user list).
+	Plan Plan `json:"plan,omitempty"`
 }
 
 // OAuthIdentity is who an identity provider says the person is.

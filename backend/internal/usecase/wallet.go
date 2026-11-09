@@ -19,10 +19,20 @@ type WalletService struct {
 	recurring domain.RecurringRepository
 	locks     *keymutex.Map
 	notify    notifier
+	plans     PlanLimits
 }
 
-func NewWalletService(w domain.WalletRepository, r domain.RecurringRepository, locks *keymutex.Map, n domain.ChangeNotifier) *WalletService {
-	return &WalletService{wallets: w, recurring: r, locks: locks, notify: notifier{n}}
+// PlanLimits is the part of MembershipService that other use cases need.
+type PlanLimits interface {
+	Limits(ctx context.Context, userID int64) (domain.Limits, error)
+}
+
+// userLockKey gives each user a keymutex key that can never equal a wallet id
+// (wallet ids are positive), for "count, then create" checks against a limit.
+func userLockKey(userID int64) int64 { return -userID }
+
+func NewWalletService(w domain.WalletRepository, r domain.RecurringRepository, locks *keymutex.Map, n domain.ChangeNotifier, plans PlanLimits) *WalletService {
+	return &WalletService{wallets: w, recurring: r, locks: locks, notify: notifier{n}, plans: plans}
 }
 
 func (in *WalletInput) validate() error {
@@ -47,6 +57,23 @@ func (s *WalletService) Create(ctx context.Context, userID int64, in WalletInput
 	}
 	if in.Balance > MaxAmount {
 		return nil, domain.Invalid("balance", "Saldo awal terlalu besar.")
+	}
+	// Count and create under one per-user lock, so two parallel requests cannot
+	// both slip in under the limit.
+	unlock := s.locks.Lock(userLockKey(userID))
+	defer unlock()
+	limits, err := s.plans.Limits(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if limits.MaxWallets != domain.Unlimited {
+		current, err := s.wallets.List(ctx, userID, false)
+		if err != nil {
+			return nil, err
+		}
+		if !domain.Allows(limits.MaxWallets, len(current)) {
+			return nil, domain.PlanLimit("Paket Gratis bisa memakai " + itoa(limits.MaxWallets) + " dompet aktif. Upgrade ke Premium untuk dompet tanpa batas, atau arsipkan dompet yang tidak dipakai.")
+		}
 	}
 	w := &domain.Wallet{UserID: userID, Name: in.Name, Type: in.Type, Color: in.Color, Balance: in.Balance}
 	if err := s.wallets.Create(ctx, w); err != nil {

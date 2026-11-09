@@ -27,6 +27,8 @@ type Config struct {
 	AdminEmail    string
 	AdminPassword string
 	SweepEvery    time.Duration
+	// BillingEnabled false is the personal edition: everyone is premium.
+	BillingEnabled bool
 	// Google sign-in; disabled when GoogleClientID is empty.
 	GoogleClientID     string
 	GoogleClientSecret string
@@ -86,6 +88,7 @@ func Load() (*Config, error) {
 		AdminEmail:    env("ADMIN_EMAIL", "admin@receh.local"),
 		AdminPassword: os.Getenv("ADMIN_PASSWORD"),
 		SweepEvery:    sweep,
+		BillingEnabled:     env("BILLING_ENABLED", "true") != "false",
 		GoogleClientID:     googleID,
 		GoogleClientSecret: googleSecret,
 		GoogleRedirectURL:  googleRedirect,

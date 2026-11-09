@@ -152,3 +152,55 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     KEY idx_audit_time (created_at DESC, id DESC),
     CONSTRAINT fk_audit_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE SET NULL
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci;
+
+-- Premium periods. A row never disappears: revoking sets revoked_at, so the
+-- admin can always see who had premium, from where and until when.
+CREATE TABLE IF NOT EXISTS promo_codes (
+    id            BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    code          VARCHAR(32)  NOT NULL,
+    plan          VARCHAR(16)  NOT NULL DEFAULT 'premium',
+    duration_days INT          NULL,
+    max_uses      INT          NOT NULL,
+    used          INT          NOT NULL DEFAULT 0,
+    expires_at    BIGINT       NULL,
+    note          VARCHAR(200) NOT NULL DEFAULT '',
+    active        TINYINT(1)   NOT NULL DEFAULT 1,
+    created_by    BIGINT       NULL,
+    created_at    BIGINT       NOT NULL,
+    UNIQUE KEY uq_promo_code (code),
+    CONSTRAINT fk_promo_creator FOREIGN KEY (created_by) REFERENCES users (id) ON DELETE SET NULL,
+    CONSTRAINT ck_promo_plan CHECK (plan IN ('premium')),
+    CONSTRAINT ck_promo_uses CHECK (max_uses > 0 AND used >= 0 AND used <= max_uses),
+    CONSTRAINT ck_promo_duration CHECK (duration_days IS NULL OR duration_days > 0)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci;
+
+CREATE TABLE IF NOT EXISTS entitlements (
+    id            BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    user_id       BIGINT       NOT NULL,
+    source        VARCHAR(8)   NOT NULL,
+    plan          VARCHAR(16)  NOT NULL DEFAULT 'premium',
+    starts_at     BIGINT       NOT NULL,
+    ends_at       BIGINT       NULL,
+    note          VARCHAR(200) NOT NULL DEFAULT '',
+    granted_by    BIGINT       NULL,
+    promo_code_id BIGINT       NULL,
+    revoked_at    BIGINT       NULL,
+    created_at    BIGINT       NOT NULL,
+    KEY idx_entitlements_user (user_id, revoked_at),
+    CONSTRAINT fk_ent_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+    CONSTRAINT fk_ent_granter FOREIGN KEY (granted_by) REFERENCES users (id) ON DELETE SET NULL,
+    CONSTRAINT fk_ent_promo FOREIGN KEY (promo_code_id) REFERENCES promo_codes (id) ON DELETE SET NULL,
+    CONSTRAINT ck_ent_source CHECK (source IN ('paid', 'comp', 'code')),
+    CONSTRAINT ck_ent_plan CHECK (plan IN ('premium'))
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci;
+
+-- One redemption per user per code, enforced by the database.
+CREATE TABLE IF NOT EXISTS promo_redemptions (
+    id          BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    code_id     BIGINT NOT NULL,
+    user_id     BIGINT NOT NULL,
+    redeemed_at BIGINT NOT NULL,
+    UNIQUE KEY uq_redemption (code_id, user_id),
+    CONSTRAINT fk_red_code FOREIGN KEY (code_id) REFERENCES promo_codes (id) ON DELETE CASCADE,
+    CONSTRAINT fk_red_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci;

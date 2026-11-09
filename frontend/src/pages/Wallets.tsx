@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Icon } from '../components/Icon';
-import { AmountInput, ColorPicker, Empty, Field, Modal, useConfirm, useToast } from '../components/ui';
+import { AmountInput, ColorPicker, Empty, Field, Link, Modal, useConfirm, useToast } from '../components/ui';
 import { api, ApiError } from '../lib/api';
 import { useFinance } from '../lib/finance';
 import { formatRp, walletTypeLabel } from '../lib/format';
@@ -21,7 +21,8 @@ const presets: { name: string; type: WalletType; color: string }[] = [
 ];
 
 export default function Wallets() {
-  const { wallets, changed, readOnly, loaded, openTx } = useFinance();
+  const { wallets, changed, readOnly, loaded, openTx, membership } = useFinance();
+  const walletCap = membership?.billingEnabled && membership.limits.maxWallets !== -1 ? membership.limits.maxWallets : null;
   const { query } = useLocation();
   const toast = useToast();
   const confirm = useConfirm();
@@ -58,7 +59,9 @@ export default function Wallets() {
       <div className="page-head">
         <div>
           <h1>Dompet</h1>
-          <p>Tempat uangmu disimpan. Total saldo: <strong className="num" style={{ color: 'var(--ink)' }}>{formatRp(total)}</strong></p>
+          <p>Tempat uangmu disimpan. Total saldo: <strong className="num" style={{ color: 'var(--ink)' }}>{formatRp(total)}</strong>
+            {walletCap !== null && <> · Paket Gratis: {wallets.length}/{walletCap} dompet <Link to="/app/langganan" style={{ fontWeight: 650, color: "var(--ink)" }}>Premium →</Link></>}
+          </p>
         </div>
         {!readOnly && (
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -118,7 +121,7 @@ function WalletForm({ wallet, onDone }: { wallet: Wallet | null; onDone: () => v
   const [type, setType] = useState<WalletType>(wallet?.type ?? 'ewallet');
   const [color, setColor] = useState(wallet?.color ?? 'c1');
   const [balance, setBalance] = useState(0);
-  const [error, setError] = useState<{ field?: string; message: string } | null>(null);
+  const [error, setError] = useState<{ field?: string; message: string; code?: string } | null>(null);
   const [saving, setSaving] = useState(false);
 
   async function submit(e: FormEvent) {
@@ -132,7 +135,7 @@ function WalletForm({ wallet, onDone }: { wallet: Wallet | null; onDone: () => v
       onDone();
     } catch (err) {
       const e2 = err as ApiError;
-      setError({ field: e2.field, message: e2.message });
+      setError({ field: e2.field, message: e2.message, code: e2.code });
     } finally {
       setSaving(false);
     }
@@ -168,7 +171,14 @@ function WalletForm({ wallet, onDone }: { wallet: Wallet | null; onDone: () => v
       <Field label="Warna">
         <ColorPicker value={color} onChange={setColor} />
       </Field>
-      {error && !error.field && !error.message.includes('nama') && <div className="alert alert-danger" role="alert">{error.message}</div>}
+      {error && !error.field && !error.message.includes('nama') && (
+        <div className="alert alert-danger" role="alert">
+          <div>
+            {error.message}
+            {error.code === 'PLAN_LIMIT' && <> <Link to="/app/langganan" style={{ fontWeight: 700, color: 'inherit' }}>Lihat Premium →</Link></>}
+          </div>
+        </div>
+      )}
       <div className="modal-actions">
         <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Menyimpan…' : 'Simpan'}</button>
       </div>

@@ -2,9 +2,10 @@ import { useState, type FormEvent } from 'react';
 import { Icon } from '../components/Icon';
 import { Empty, ErrorNote, Field, Modal, PasswordInput, Skeleton, useToast } from '../components/ui';
 import { api, ApiError, qs } from '../lib/api';
-import { formatDateTime } from '../lib/format';
+import { formatDateTime, todayISO } from '../lib/format';
 import { useDebounced, useFetch } from '../lib/hooks';
-import type { Page, User, UserStatus } from '../lib/types';
+import type { Entitlement, Page, User, UserStatus } from '../lib/types';
+import { premiumUntil } from './Subscription';
 
 const statusBadge: Record<UserStatus, { cls: string; label: string }> = {
   active: { cls: 'badge-income', label: 'Aktif' },
@@ -34,6 +35,7 @@ export default function AdminUsers() {
   const { data, error, loading, reload } = useFetch<Page<User>>(`/admin/users${qs({ search: debounced, status, page, pageSize: 20 })}`);
   const [creating, setCreating] = useState(false);
   const [action, setAction] = useState<{ user: User; status: Exclude<UserStatus, 'active'> } | null>(null);
+  const [premiumFor, setPremiumFor] = useState<User | null>(null);
 
   async function activate(u: User) {
     try {
@@ -76,12 +78,21 @@ export default function AdminUsers() {
           <>
             <div className="table-scroll">
               <table className="table">
-                <thead><tr><th>Pengguna</th><th>Peran</th><th>Status</th><th>Terdaftar</th><th style={{ textAlign: 'right' }}>Aksi</th></tr></thead>
+                <thead><tr><th>Pengguna</th><th>Peran</th><th>Paket</th><th>Status</th><th>Terdaftar</th><th style={{ textAlign: 'right' }}>Aksi</th></tr></thead>
                 <tbody>
                   {data.items.map((u) => (
                     <tr key={u.id}>
                       <td><strong>{u.name}</strong><span className="sub">{u.email}</span></td>
                       <td>{u.role === 'admin' ? <span className="badge badge-accent">Admin</span> : <span className="badge badge-neutral">Pengguna</span>}</td>
+                      <td>
+                        {u.role !== 'user' ? <span className="muted">—</span> : (
+                          <button className="plan-chip" onClick={() => setPremiumFor(u)} aria-label={`Atur Premium ${u.name}`}>
+                            {u.plan === 'premium'
+                              ? <span className="badge badge-accent"><Icon name="sparkle" size={12} /> Premium</span>
+                              : <span className="badge badge-neutral">Gratis</span>}
+                          </button>
+                        )}
+                      </td>
                       <td>
                         <span className={'badge ' + statusBadge[u.status].cls}>{statusBadge[u.status].label}</span>
                         {u.statusReason && <span className="sub">{u.statusReason}</span>}
@@ -90,6 +101,7 @@ export default function AdminUsers() {
                       <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                         {u.role === 'admin' ? <span className="muted" style={{ fontSize: 13 }}>Dilindungi</span> : (
                           <div style={{ display: 'inline-flex', gap: 6 }}>
+                            <button className="btn btn-ghost btn-sm" onClick={() => setPremiumFor(u)}><Icon name="sparkle" size={16} /> Premium</button>
                             {u.status !== 'active' && <button className="btn btn-ghost btn-sm" onClick={() => activate(u)}><Icon name="check" size={16} /> Aktifkan</button>}
                             {u.status !== 'frozen' && <button className="btn btn-ghost btn-sm" onClick={() => setAction({ user: u, status: 'frozen' })}><Icon name="snow" size={16} /> Bekukan</button>}
                             {u.status !== 'suspended' && <button className="btn btn-ghost btn-sm" style={{ color: 'var(--danger)' }} onClick={() => setAction({ user: u, status: 'suspended' })}><Icon name="ban" size={16} /> Tangguhkan</button>}
@@ -118,7 +130,107 @@ export default function AdminUsers() {
       <Modal open={!!action} onClose={() => setAction(null)} title={action ? actionCopy[action.status].title : ''}>
         {action && <StatusForm user={action.user} status={action.status} onDone={() => { setAction(null); reload(); }} />}
       </Modal>
+      <Modal open={!!premiumFor} onClose={() => { setPremiumFor(null); reload(); }} title="Premium gratis">
+        {premiumFor && <PremiumPanel user={premiumFor} />}
+      </Modal>
     </>
+  );
+}
+
+const sourceText: Record<Entitlement['source'], string> = {
+  comp: 'Hadiah admin',
+  code: 'Kode undangan',
+  paid: 'Berbayar',
+};
+
+/** Give a user premium for free (e.g. family), see their history, revoke. */
+function PremiumPanel({ user }: { user: User }) {
+  const toast = useToast();
+  const { data, reload } = useFetch<{ billingEnabled: boolean; items: Entitlement[] }>(`/admin/users/${user.id}/premium`);
+  const [mode, setMode] = useState<'forever' | 'until'>('forever');
+  const [until, setUntil] = useState('');
+  const [note, setNote] = useState('');
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
+  const now = new Date();
+  const active = (data?.items ?? []).filter((e) => !e.revokedAt && (!e.endsAt || new Date(e.endsAt) > now));
+
+  async function grant(e: FormEvent) {
+    e.preventDefault();
+    if (mode === 'until' && !until) return setErrors({ until: 'Pilih tanggal berakhir.' });
+    setBusy(true);
+    try {
+      await api.post(`/admin/users/${user.id}/premium`, { until: mode === 'until' ? until : '', note });
+      toast(`${user.name} sekarang Premium`);
+      setNote('');
+      setErrors({});
+      reload();
+    } catch (err) {
+      const e2 = err as ApiError;
+      setErrors({ [e2.field || 'form']: e2.message });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function revoke(ent: Entitlement) {
+    try {
+      await api.del(`/admin/premium/${ent.id}`);
+      toast('Premium dicabut');
+      reload();
+    } catch (err) {
+      toast((err as ApiError).message, 'error');
+    }
+  }
+
+  return (
+    <div className="form-grid">
+      <p style={{ color: 'var(--ink-2)' }}>
+        <strong>{user.name}</strong> ({user.email}) {active.length ? 'sedang Premium.' : 'memakai paket Gratis.'}
+      </p>
+      {data && !data.billingEnabled && (
+        <div className="alert alert-info">Edisi pribadi: semua akun sudah Premium. Pemberian di bawah baru berlaku bila <code>BILLING_ENABLED=true</code>.</div>
+      )}
+
+      {(data?.items.length ?? 0) > 0 && (
+        <div className="ent-list">
+          {data!.items.map((e) => {
+            const on = !e.revokedAt && (!e.endsAt || new Date(e.endsAt) > now);
+            return (
+              <div key={e.id} className="ent-row" style={on ? undefined : { opacity: 0.55 }}>
+                <div>
+                  <strong>{sourceText[e.source]}{e.promoCode ? ` · ${e.promoCode}` : ''}</strong>
+                  <span className="sub">
+                    {e.revokedAt ? `Dicabut ${formatDateTime(e.revokedAt)}` : premiumUntil(e.endsAt)}
+                    {e.note && ` · ${e.note}`}
+                  </span>
+                </div>
+                {on && <button className="btn btn-ghost btn-sm" style={{ color: 'var(--danger)' }} onClick={() => revoke(e)}>Cabut</button>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <form className="form-grid" onSubmit={grant} noValidate>
+        <Field label="Berlaku">
+          <div className="segmented" role="group" aria-label="Berlaku">
+            <button type="button" aria-pressed={mode === 'forever'} onClick={() => setMode('forever')}>Selamanya</button>
+            <button type="button" aria-pressed={mode === 'until'} onClick={() => setMode('until')}>Sampai tanggal</button>
+          </div>
+        </Field>
+        {mode === 'until' && (
+          <Field label="Sampai tanggal (termasuk)" htmlFor="pm-until" error={errors.until}>
+            <input id="pm-until" className="input" type="date" min={todayISO()} value={until} onChange={(e) => setUntil(e.target.value)} />
+          </Field>
+        )}
+        <Field label="Catatan (opsional)" htmlFor="pm-note" error={errors.note} hint="Contoh: Keluarga, adik, beta tester.">
+          <input id="pm-note" className="input" value={note} maxLength={200} onChange={(e) => setNote(e.target.value)} />
+        </Field>
+        {errors.form && <div className="alert alert-danger">{errors.form}</div>}
+        <div className="modal-actions"><button type="submit" className="btn btn-primary" disabled={busy}>{busy ? 'Menyimpan…' : 'Beri Premium gratis'}</button></div>
+      </form>
+    </div>
   );
 }
 

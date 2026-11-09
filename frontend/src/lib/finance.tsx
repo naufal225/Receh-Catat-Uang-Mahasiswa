@@ -4,7 +4,7 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 import { api } from './api';
 import { useAuth } from './auth';
-import type { Category, Transaction, TxType, Wallet } from './types';
+import type { Category, Membership, Transaction, TxType, Wallet } from './types';
 
 /** What the global "Catat" modal shows: an income/expense form or a transfer form. */
 export type EntryMode = TxType | 'transfer';
@@ -37,6 +37,8 @@ interface FinanceState {
   openTx: (opts?: OpenTxOptions) => void;
   closeTx: () => void;
   readOnly: boolean;
+  /** Plan, limits and usage; null until loaded. */
+  membership: Membership | null;
 }
 
 const Ctx = createContext<FinanceState>(null as unknown as FinanceState);
@@ -46,14 +48,20 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const [wallets, setWallets] = useState<Wallet[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [membership, setMembership] = useState<Membership | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [version, setVersion] = useState(0);
   const [txModal, setTxModal] = useState<TxModalState>({ open: false, mode: 'expense', edit: null, transferId: null, fromWalletId: null });
 
   const load = useCallback(async () => {
-    const [w, c] = await Promise.all([api.get<Wallet[]>('/wallets'), api.get<Category[]>('/categories')]);
+    const [w, c, m] = await Promise.all([
+      api.get<Wallet[]>('/wallets'),
+      api.get<Category[]>('/categories'),
+      api.get<Membership>('/membership'),
+    ]);
     setWallets(w);
     setCategories(c);
+    setMembership(m);
     setLoaded(true);
   }, []);
 
@@ -79,7 +87,7 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
   const closeTx = useCallback(() => setTxModal((m) => ({ ...m, open: false })), []);
 
   return (
-    <Ctx.Provider value={{ wallets, categories, loaded, version, changed, txModal, openTx, closeTx, readOnly: user?.status === 'frozen' }}>
+    <Ctx.Provider value={{ wallets, categories, loaded, version, changed, txModal, openTx, closeTx, readOnly: user?.status === 'frozen', membership }}>
       {children}
     </Ctx.Provider>
   );

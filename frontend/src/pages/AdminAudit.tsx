@@ -15,6 +15,10 @@ const events: Record<string, { label: string; cls: string }> = {
   session_revoked: { label: 'Perangkat dikeluarkan', cls: 'badge-warn' },
   password_changed: { label: 'Ganti sandi', cls: 'badge-warn' },
   google_linked: { label: 'Google ditautkan', cls: 'badge-accent' },
+  premium_granted: { label: 'Admin: beri Premium', cls: 'badge-accent' },
+  premium_revoked: { label: 'Admin: cabut Premium', cls: 'badge-warn' },
+  promo_created: { label: 'Admin: buat kode', cls: 'badge-neutral' },
+  promo_redeemed: { label: 'Tukar kode', cls: 'badge-income' },
   admin_user_created: { label: 'Admin: buat akun', cls: 'badge-neutral' },
   admin_status_changed: { label: 'Admin: ubah status', cls: 'badge-warn' },
 };

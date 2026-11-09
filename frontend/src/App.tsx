@@ -7,6 +7,7 @@ import { Logo } from './components/Icon';
 import { useAuth } from './lib/auth';
 import { navigate, useLocation } from './lib/router';
 import AdminAudit from './pages/AdminAudit';
+import AdminPromos from './pages/AdminPromos';
 import AdminUsers from './pages/AdminUsers';
 import { Login, Register } from './pages/Auth';
 import Categories from './pages/Categories';
@@ -15,6 +16,7 @@ import Landing from './pages/Landing';
 import Recurring from './pages/Recurring';
 import Reports from './pages/Reports';
 import Security from './pages/Security';
+import Subscription from './pages/Subscription';
 import Transactions from './pages/Transactions';
 import Wallets from './pages/Wallets';
 
@@ -26,10 +28,12 @@ const userPages: Record<string, { el: () => ReactNode; title: string }> = {
   '/app/rutin': { el: Recurring, title: 'Rutin & rencana' },
   '/app/laporan': { el: Reports, title: 'Laporan bulanan' },
   '/app/keamanan': { el: Security, title: 'Perangkat & keamanan' },
+  '/app/langganan': { el: Subscription, title: 'Langganan' },
 };
 const adminPages: Record<string, { el: () => ReactNode; title: string }> = {
   '/admin': { el: AdminUsers, title: 'Pengguna' },
   '/admin/audit': { el: AdminAudit, title: 'Audit log' },
+  '/admin/kode': { el: AdminPromos, title: 'Kode undangan' },
   '/admin/keamanan': { el: Security, title: 'Perangkat saya' },
 };
 

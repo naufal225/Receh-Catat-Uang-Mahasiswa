@@ -33,6 +33,8 @@ type Params struct {
 	DashboardCacheTTL time.Duration
 	// Google sign-in provider; nil disables it.
 	Google domain.OAuthProvider
+	// BillingEnabled false = personal edition (everyone premium).
+	BillingEnabled bool
 }
 
 type App struct {
@@ -72,10 +74,13 @@ func New(p Params) *App {
 		janitors = append(janitors, func(ctx context.Context) { auth.OAuthStates().RunJanitor(ctx, time.Minute) })
 	}
 
+	membership := usecase.NewMembershipService(p.BillingEnabled, mysql.NewEntitlementRepo(p.DB), mysql.NewPromoRepo(p.DB),
+		users, wallets, audit, p.Clock)
+
 	dashboard := usecase.NewDashboardService(txs, wallets, recurring, p.Clock, versions, p.DashboardCacheTTL)
 	svc := deliveryhttp.Services{
 		Auth:       auth,
-		Wallets:    usecase.NewWalletService(wallets, recurring, locks, versions),
+		Wallets:    usecase.NewWalletService(wallets, recurring, locks, versions, membership),
 		Categories: usecase.NewCategoryService(categories, versions),
 		Txs:        usecase.NewTransactionService(txs, wallets, categories, p.Clock, locks, versions),
 		Transfers:  usecase.NewTransferService(transfers, wallets, categories, p.Clock, locks, versions),
@@ -83,6 +88,7 @@ func New(p Params) *App {
 		Dashboard:  dashboard,
 		Reports:    usecase.NewReportService(txs, pdf.ReportRenderer{}, p.Clock),
 		Admin:      usecase.NewAdminService(users, sessions, auditRepo, audit, p.BcryptCost),
+		Membership: membership,
 	}
 	server := deliveryhttp.NewServer(svc, deliveryhttp.Options{
 		CookieSecure: p.CookieSecure, TrustProxy: p.TrustProxy, StaticDir: p.StaticDir,

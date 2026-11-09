@@ -22,6 +22,7 @@ type Services struct {
 	Dashboard  *usecase.DashboardService
 	Reports    *usecase.ReportService
 	Admin      *usecase.AdminService
+	Membership *usecase.MembershipService
 }
 
 type Options struct {
@@ -85,6 +86,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/recurring/{id}/active", s.userWrite(s.setRecurringActive))
 	mux.HandleFunc("DELETE /api/recurring/{id}", s.userWrite(s.deleteRecurring))
 
+	mux.HandleFunc("GET /api/membership", s.userRead(s.membership))
+	mux.HandleFunc("POST /api/membership/redeem", s.userWrite(s.redeemCode))
+
 	mux.HandleFunc("GET /api/dashboard", s.userRead(s.dashboard))
 	mux.HandleFunc("GET /api/dashboard/slices", s.userRead(s.dashboardSlices))
 
@@ -95,6 +99,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/admin/users", s.admin(s.adminCreateUser))
 	mux.HandleFunc("POST /api/admin/users/{id}/status", s.admin(s.adminSetStatus))
 	mux.HandleFunc("GET /api/admin/audit-logs", s.admin(s.adminAuditLogs))
+	mux.HandleFunc("GET /api/admin/users/{id}/premium", s.admin(s.adminUserPremium))
+	mux.HandleFunc("POST /api/admin/users/{id}/premium", s.admin(s.adminGrantPremium))
+	mux.HandleFunc("DELETE /api/admin/premium/{id}", s.admin(s.adminRevokePremium))
+	mux.HandleFunc("GET /api/admin/promo-codes", s.admin(s.adminListPromos))
+	mux.HandleFunc("POST /api/admin/promo-codes", s.admin(s.adminCreatePromo))
+	mux.HandleFunc("POST /api/admin/promo-codes/{id}/active", s.admin(s.adminSetPromoActive))
 
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusNotFound, errorBody{Code: "NOT_FOUND", Message: "Endpoint tidak ditemukan."})

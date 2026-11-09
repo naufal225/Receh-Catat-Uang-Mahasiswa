@@ -20,6 +20,8 @@ export interface User {
   /** False for accounts created with Google that never set a password. */
   hasPassword: boolean;
   googleLinked: boolean;
+  /** Only in the admin user list. */
+  plan?: Plan;
 }
 
 export interface Session {
@@ -181,5 +183,55 @@ export interface AuditLog {
   device: string;
   location: string;
   detail: string;
+  createdAt: string;
+}
+
+/* ---------- Membership (freemium) ---------- */
+export type Plan = 'free' | 'premium';
+export type EntitlementSource = 'paid' | 'comp' | 'code';
+
+export interface Limits {
+  /** -1 = tanpa batas */
+  maxWallets: number;
+  maxBudgets: number;
+  maxGoals: number;
+  csvImport: boolean;
+}
+
+export interface Membership {
+  plan: Plan;
+  /** False on the personal edition: everyone is premium and nothing is sold. */
+  billingEnabled: boolean;
+  source?: EntitlementSource;
+  endsAt: string | null;
+  note?: string;
+  limits: Limits;
+  freeLimits: Limits;
+  usage: { wallets: number; budgets: number; goals: number };
+}
+
+export interface Entitlement {
+  id: number;
+  userId: number;
+  source: EntitlementSource;
+  plan: Plan;
+  startsAt: string;
+  endsAt: string | null;
+  note: string;
+  promoCode?: string;
+  revokedAt: string | null;
+  createdAt: string;
+}
+
+export interface PromoCode {
+  id: number;
+  code: string;
+  plan: Plan;
+  durationDays: number | null;
+  maxUses: number;
+  used: number;
+  expiresAt: string | null;
+  note: string;
+  active: boolean;
   createdAt: string;
 }
