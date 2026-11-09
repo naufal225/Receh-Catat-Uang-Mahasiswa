@@ -88,7 +88,7 @@ func Load() (*Config, error) {
 		AdminEmail:    env("ADMIN_EMAIL", "admin@receh.local"),
 		AdminPassword: os.Getenv("ADMIN_PASSWORD"),
 		SweepEvery:    sweep,
-		BillingEnabled:     env("BILLING_ENABLED", "true") != "false",
+		BillingEnabled:     env("BILLING_ENABLED", "false") == "true",
 		GoogleClientID:     googleID,
 		GoogleClientSecret: googleSecret,
 		GoogleRedirectURL:  googleRedirect,
