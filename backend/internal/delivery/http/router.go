@@ -23,6 +23,7 @@ type Services struct {
 	Reports    *usecase.ReportService
 	Admin      *usecase.AdminService
 	Membership *usecase.MembershipService
+	Budgets    *usecase.BudgetService
 }
 
 type Options struct {
@@ -85,6 +86,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/recurring/{id}", s.userWrite(s.updateRecurring))
 	mux.HandleFunc("POST /api/recurring/{id}/active", s.userWrite(s.setRecurringActive))
 	mux.HandleFunc("DELETE /api/recurring/{id}", s.userWrite(s.deleteRecurring))
+
+	mux.HandleFunc("GET /api/budgets", s.userRead(s.listBudgets))
+	mux.HandleFunc("POST /api/budgets", s.userWrite(s.createBudget))
+	mux.HandleFunc("PUT /api/budgets/{id}", s.userWrite(s.updateBudget))
+	mux.HandleFunc("DELETE /api/budgets/{id}", s.userWrite(s.deleteBudget))
 
 	mux.HandleFunc("GET /api/membership", s.userRead(s.membership))
 	mux.HandleFunc("POST /api/membership/redeem", s.userWrite(s.redeemCode))

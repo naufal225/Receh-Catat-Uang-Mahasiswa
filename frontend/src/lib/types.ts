@@ -145,6 +145,7 @@ export interface Dashboard {
   wallets: Wallet[];
   latest: Transaction[];
   upcomingRoutines: Recurring[];
+  budgets: BudgetStatus[];
 }
 
 export interface SliceSet {
@@ -234,4 +235,30 @@ export interface PromoCode {
   note: string;
   active: boolean;
   createdAt: string;
+}
+
+/* ---------- Budgets ---------- */
+export type BudgetLevel = 'ok' | 'warning' | 'over';
+
+export interface BudgetStatus {
+  id: number;
+  categoryId: number;
+  categoryName: string;
+  categoryColor: string;
+  amount: number;
+  spent: number;
+  remaining: number;
+  percent: number;
+  level: BudgetLevel;
+}
+
+export interface BudgetMonth {
+  month: string;
+  title: string;
+  items: BudgetStatus[];
+  totalBudget: number;
+  totalSpent: number;
+  daysLeft: number;
+  isCurrent: boolean;
+  unbudgeted: number;
 }

@@ -25,7 +25,16 @@ type DashboardService struct {
 	// never asked for again and ages out.
 	cache    *cache.TTL[dashKey, *domain.Dashboard]
 	versions *cache.Versions
+	budgets  BudgetMonths
 }
+
+// BudgetMonths is what the dashboard needs from BudgetService.
+type BudgetMonths interface {
+	Month(ctx context.Context, userID int64, month string) (*domain.BudgetMonth, error)
+}
+
+// WithBudgets adds this month's budgets to the dashboard.
+func (s *DashboardService) WithBudgets(b BudgetMonths) { s.budgets = b }
 
 type dashKey struct {
 	userID, walletID int64
@@ -160,6 +169,17 @@ func (s *DashboardService) build(ctx context.Context, userID int64, unit string,
 		},
 		func() (e error) { d.Wallets, e = s.wallets.List(ctx, userID, false); return },
 		func() (e error) { d.Latest, e = s.txs.Latest(ctx, userID, walletID, 8); return },
+		func() error {
+			d.Budgets = []domain.BudgetStatus{}
+			if s.budgets == nil {
+				return nil
+			}
+			m, e := s.budgets.Month(ctx, userID, "")
+			if e == nil {
+				d.Budgets = m.Items
+			}
+			return e
+		},
 		func() error {
 			all, e := s.recurring.List(ctx, userID)
 			if e != nil {

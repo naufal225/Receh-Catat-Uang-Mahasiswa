@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { BarChart, PieChart } from '../components/charts';
 import { Icon } from '../components/Icon';
 import { TxRow } from '../components/TxRow';
+import { BudgetBar } from '../components/BudgetBar';
 import { Empty, ErrorNote, Link, Skeleton } from '../components/ui';
 import { api, qs } from '../lib/api';
 import { useAuth } from '../lib/auth';
@@ -265,6 +266,22 @@ export default function Dashboard() {
               <Link to="/app/transaksi" style={{ fontWeight: 600 }}>Lihat semua →</Link>
             </div>
           </div>
+
+          {data && !readOnly && (
+            <div className="card card-pad" style={{ marginTop: 6 }}>
+              <div className="card-head" style={{ marginBottom: 10 }}>
+                <h3>Anggaran bulan ini</h3>
+                <Link to="/app/anggaran" className="btn btn-quiet btn-sm">{data.budgets.length ? 'Semua' : 'Buat'}</Link>
+              </div>
+              {data.budgets.length === 0 ? (
+                <p className="muted" style={{ fontSize: 13.5 }}>Tetapkan batas belanja per kategori, misalnya Makan Rp 1.200.000, supaya tahu kapan harus mengerem.</p>
+              ) : (
+                <div style={{ display: 'grid', gap: 14 }}>
+                  {[...data.budgets].sort((a, b) => b.percent - a.percent).slice(0, 4).map((b) => <BudgetBar key={b.id} b={b} compact />)}
+                </div>
+              )}
+            </div>
+          )}
 
           {data && data.upcomingRoutines.length > 0 && (
             <div className="card card-pad" style={{ marginTop: 6 }}>
