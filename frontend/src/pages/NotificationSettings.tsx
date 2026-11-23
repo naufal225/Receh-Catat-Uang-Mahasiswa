@@ -1,18 +1,32 @@
-// Which reminders to receive, the low-balance threshold, and the hour of the
-// evening reminder.
+// Which reminders to receive and the settings modules expose (a threshold,
+// an hour). Everything listed here is declared by modules on the server.
 import { useEffect, useState, type FormEvent } from 'react';
-import { Icon } from '../components/Icon';
-import { kindMeta } from '../components/Notifications';
-import { AmountInput, Field, Skeleton, useToast } from '../components/ui';
+import { pick } from '../brand';
+import { Icon, iconOr } from '../components/Icon';
+import { AmountInput, Empty, Field, Skeleton, useToast } from '../components/ui';
 import { api, ApiError } from '../lib/api';
-import { useFinance } from '../lib/finance';
-import type { NotificationKind, NotificationPrefs } from '../lib/types';
+import { useApp } from '../lib/app';
+import type { NotificationPrefs } from '../lib/types';
 
-const order: NotificationKind[] = ['budget_warning', 'budget_over', 'bill_due', 'bill_failed', 'low_balance', 'goal_achieved', 'daily_reminder', 'weekly_summary'];
+type Setting = NotificationPrefs['settings'][number];
+
+function SettingInput({ s, value, onChange, disabled }: { s: Setting; value: number; onChange: (v: number) => void; disabled: boolean }) {
+  const id = 'np-' + s.key.replace(/\W/g, '-');
+  if (s.kind === 'amount') return <AmountInput id={id} value={value} onChange={onChange} />;
+  if (s.kind === 'hour') {
+    return (
+      <select id={id} className="select" value={value} disabled={disabled} onChange={(e) => onChange(Number(e.target.value))}>
+        {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{String(h).padStart(2, '0')}.00</option>)}
+      </select>
+    );
+  }
+  return <input id={id} className="input" type="number" inputMode="numeric" min={s.min} max={s.max} value={value} disabled={disabled}
+    onChange={(e) => onChange(Number(e.target.value))} />;
+}
 
 export default function NotificationSettings() {
   const toast = useToast();
-  const { readOnly } = useFinance();
+  const { readOnly } = useApp();
   const [prefs, setPrefs] = useState<NotificationPrefs | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -27,7 +41,11 @@ export default function NotificationSettings() {
     setBusy(true);
     setError('');
     try {
-      setPrefs(await api.put<NotificationPrefs>('/notifications/prefs', prefs));
+      const body = {
+        kinds: Object.fromEntries(prefs.kinds.map((k) => [k.key, k.enabled])),
+        settings: Object.fromEntries(prefs.settings.map((s) => [s.key, s.value])),
+      };
+      setPrefs(await api.put<NotificationPrefs>('/notifications/prefs', body));
       toast('Pengaturan notifikasi disimpan');
     } catch (err) {
       setError((err as ApiError).message);
@@ -35,6 +53,11 @@ export default function NotificationSettings() {
       setBusy(false);
     }
   }
+
+  const setKind = (key: string, enabled: boolean) =>
+    prefs && setPrefs({ ...prefs, kinds: prefs.kinds.map((k) => (k.key === key ? { ...k, enabled } : k)) });
+  const setSetting = (key: string, value: number) =>
+    prefs && setPrefs({ ...prefs, settings: prefs.settings.map((s) => (s.key === key ? { ...s, value } : s)) });
 
   return (
     <>
@@ -46,30 +69,29 @@ export default function NotificationSettings() {
       </div>
       {!prefs ? (
         error ? <div className="alert alert-danger">{error}</div> : <Skeleton h={320} />
+      ) : prefs.kinds.length === 0 ? (
+        <div className="card"><Empty icon="bell" title="Belum ada jenis notifikasi">Modul yang dipasang belum mengirim pengingat apa pun.</Empty></div>
       ) : (
         <form className="card card-pad form-grid" style={{ maxWidth: 620 }} onSubmit={save} noValidate>
           <fieldset className="toggle-list" disabled={readOnly}>
             <legend className="sr-only">Jenis notifikasi</legend>
-            {order.map((k) => (
-              <label key={k} className="toggle-row">
-                <span className="inbox-icon tone-neutral"><Icon name={kindMeta[k].icon} size={16} /></span>
-                <span style={{ flex: 1 }}>{kindMeta[k].label}</span>
-                <input type="checkbox" className="switch" checked={prefs.kinds[k]}
-                  onChange={(e) => setPrefs({ ...prefs, kinds: { ...prefs.kinds, [k]: e.target.checked } })} />
+            {prefs.kinds.map((k) => (
+              <label key={k.key} className="toggle-row">
+                <span className="inbox-icon tone-neutral"><Icon name={iconOr(k.icon)} size={16} /></span>
+                <span style={{ flex: 1 }}>{pick(k.label)}</span>
+                <input type="checkbox" className="switch" checked={k.enabled} onChange={(e) => setKind(k.key, e.target.checked)} />
               </label>
             ))}
           </fieldset>
-          <div className="form-row">
-            <Field label="Saldo dianggap menipis di bawah" htmlFor="np-low" hint="Berlaku untuk semua dompet yang sudah dipakai.">
-              <AmountInput id="np-low" value={prefs.lowBalanceThreshold} onChange={(v) => setPrefs({ ...prefs, lowBalanceThreshold: v })} />
-            </Field>
-            <Field label="Pengingat malam mulai pukul" htmlFor="np-hour">
-              <select id="np-hour" className="select" value={prefs.reminderHour} disabled={readOnly}
-                onChange={(e) => setPrefs({ ...prefs, reminderHour: Number(e.target.value) })}>
-                {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{String(h).padStart(2, '0')}.00</option>)}
-              </select>
-            </Field>
-          </div>
+          {prefs.settings.length > 0 && (
+            <div className="form-row">
+              {prefs.settings.map((s) => (
+                <Field key={s.key} label={pick(s.label)} htmlFor={'np-' + s.key.replace(/\W/g, '-')}>
+                  <SettingInput s={s} value={s.value} disabled={readOnly} onChange={(v) => setSetting(s.key, v)} />
+                </Field>
+              ))}
+            </div>
+          )}
           {error && <div className="alert alert-danger">{error}</div>}
           <div><button type="submit" className="btn btn-primary" disabled={busy || readOnly}>{busy ? 'Menyimpan…' : 'Simpan'}</button></div>
         </form>

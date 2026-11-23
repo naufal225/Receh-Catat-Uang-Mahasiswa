@@ -6,7 +6,8 @@ import (
 	"testing"
 
 	"receh/internal/domain"
-	"receh/internal/usecase"
+	"receh/internal/modules/finance/model"
+	"receh/internal/modules/finance/service"
 )
 
 func TestQuickEntryUsesTextThenHistory(t *testing.T) { // today 2026-01-15
@@ -14,32 +15,32 @@ func TestQuickEntryUsesTextThenHistory(t *testing.T) { // today 2026-01-15
 	c := e.newUser("")
 	bca := c.wallet("BCA", 1_000_000)
 	gopay := c.wallet("GoPay", 100_000)
-	makan := c.category(domain.TxExpense, "Makan")
+	makan := c.category(model.TxExpense, "Makan")
 
-	d := must[domain.QuickDraft](c, 200, "POST", "/api/quick/parse", M{"text": "makan siang 25rb gopay kemarin"})
-	if d.Amount != 25_000 || d.WalletID != gopay.ID || d.CategoryID != makan || d.OccurredOn != "2026-01-14" || d.Name != "Makan siang" || d.Type != domain.TxExpense {
+	d := must[model.QuickDraft](c, 200, "POST", "/api/quick/parse", M{"text": "makan siang 25rb gopay kemarin"})
+	if d.Amount != 25_000 || d.WalletID != gopay.ID || d.CategoryID != makan || d.OccurredOn != "2026-01-14" || d.Name != "Makan siang" || d.Type != model.TxExpense {
 		t.Fatalf("draft %+v", d)
 	}
 	// A name used before brings back its wallet and category.
-	c.expect(201, "POST", "/api/transactions", M{"walletId": bca.ID, "categoryId": c.category(domain.TxExpense, "Kuliah"),
+	c.expect(201, "POST", "/api/transactions", M{"walletId": bca.ID, "categoryId": c.category(model.TxExpense, "Kuliah"),
 		"type": "expense", "name": "Fotokopi modul", "amount": 7_000, "occurredOn": "2026-01-10"})
-	d = must[domain.QuickDraft](c, 200, "POST", "/api/quick/parse", M{"text": "fotokopi modul 8rb"})
-	if d.WalletID != bca.ID || d.CategoryID != c.category(domain.TxExpense, "Kuliah") || d.Amount != 8_000 {
+	d = must[model.QuickDraft](c, 200, "POST", "/api/quick/parse", M{"text": "fotokopi modul 8rb"})
+	if d.WalletID != bca.ID || d.CategoryID != c.category(model.TxExpense, "Kuliah") || d.Amount != 8_000 {
 		t.Fatalf("history draft %+v", d)
 	}
 	c.expect(400, "POST", "/api/quick/parse", M{"text": "  "})
 
 	// Suggestions while typing a name.
-	c.expect(201, "POST", "/api/transactions", M{"walletId": bca.ID, "categoryId": c.category(domain.TxExpense, "Kuliah"),
+	c.expect(201, "POST", "/api/transactions", M{"walletId": bca.ID, "categoryId": c.category(model.TxExpense, "Kuliah"),
 		"type": "expense", "name": "Fotokopi modul", "amount": 9_000, "occurredOn": "2026-01-12"})
-	s := must[[]domain.TxSuggestion](c, 200, "GET", "/api/transactions/suggest?q=foto", nil)
+	s := must[[]model.TxSuggestion](c, 200, "GET", "/api/transactions/suggest?q=foto", nil)
 	if len(s) != 1 || s[0].Name != "Fotokopi modul" || s[0].Uses != 2 || s[0].Amount != 9_000 || s[0].WalletID != bca.ID {
 		t.Fatalf("suggest %+v", s)
 	}
-	if s := must[[]domain.TxSuggestion](c, 200, "GET", "/api/transactions/suggest?q=f", nil); len(s) != 0 {
+	if s := must[[]model.TxSuggestion](c, 200, "GET", "/api/transactions/suggest?q=f", nil); len(s) != 0 {
 		t.Fatalf("one letter should not suggest: %+v", s)
 	}
-	if s := must[[]domain.TxSuggestion](e.newUser(""), 200, "GET", "/api/transactions/suggest?q=foto", nil); len(s) != 0 {
+	if s := must[[]model.TxSuggestion](e.newUser(""), 200, "GET", "/api/transactions/suggest?q=foto", nil); len(s) != 0 {
 		t.Fatal("suggestions leaked to another user")
 	}
 }
@@ -54,26 +55,26 @@ func TestStatementImportPreviewCommitUndo(t *testing.T) {
 	e := newEnv(t) // personal edition: import allowed
 	c := e.newUser("")
 	bca := c.wallet("BCA", 200_000)
-	kuliah := c.category(domain.TxExpense, "Kuliah")
+	kuliah := c.category(model.TxExpense, "Kuliah")
 	// Already recorded by hand: the import must flag it as a duplicate.
 	c.expect(201, "POST", "/api/transactions", M{"walletId": bca.ID, "categoryId": kuliah, "type": "expense",
 		"name": "Fotokopi modul", "amount": 7_000, "occurredOn": "2026-01-13"})
 
-	p := must[usecase.ImportPreview](c, 200, "POST", "/api/import/preview", M{"walletId": bca.ID, "csv": bcaCSV})
+	p := must[service.ImportPreview](c, 200, "POST", "/api/import/preview", M{"walletId": bca.ID, "csv": bcaCSV})
 	if len(p.Rows) != 4 || p.Mapping.Amount != 3 {
 		t.Fatalf("preview %+v", p)
 	}
-	byName := map[string]usecase.ImportRow{}
+	byName := map[string]service.ImportRow{}
 	for _, r := range p.Rows {
 		byName[r.Name] = r
 	}
-	if r := byName["BAYAR NETFLIX"]; r.Type != domain.TxExpense || r.Amount != 54_000 || r.CategoryID != c.category(domain.TxExpense, "Langganan") {
+	if r := byName["BAYAR NETFLIX"]; r.Type != model.TxExpense || r.Amount != 54_000 || r.CategoryID != c.category(model.TxExpense, "Langganan") {
 		t.Fatalf("netflix row %+v", r)
 	}
-	if r := byName["KR OTOMATIS UANG SAKU"]; r.Type != domain.TxIncome || r.CategoryID != c.category(domain.TxIncome, "Uang Saku") {
+	if r := byName["KR OTOMATIS UANG SAKU"]; r.Type != model.TxIncome || r.CategoryID != c.category(model.TxIncome, "Uang Saku") {
 		t.Fatalf("income row %+v", r)
 	}
-	if r := byName["ALFAMART"]; r.CategoryID != c.category(domain.TxExpense, "Lainnya") {
+	if r := byName["ALFAMART"]; r.CategoryID != c.category(model.TxExpense, "Lainnya") {
 		t.Fatalf("fallback row %+v", r)
 	}
 	if r := byName["Fotokopi modul"]; !r.Duplicate || r.CategoryID != kuliah {
@@ -81,13 +82,13 @@ func TestStatementImportPreviewCommitUndo(t *testing.T) {
 	}
 
 	// Import everything but the duplicate.
-	var rows []usecase.ImportRow
+	var rows []service.ImportRow
 	for _, r := range p.Rows {
 		if !r.Duplicate {
 			rows = append(rows, r)
 		}
 	}
-	b := must[domain.ImportBatch](c, 201, "POST", "/api/import/commit", M{"walletId": bca.ID, "fileName": "mutasi-jan.csv", "rows": rows})
+	b := must[model.ImportBatch](c, 201, "POST", "/api/import/commit", M{"walletId": bca.ID, "fileName": "mutasi-jan.csv", "rows": rows})
 	if b.Rows != 3 || b.TotalIn != 1_500_000 || b.TotalOut != 92_500 {
 		t.Fatalf("batch %+v", b)
 	}
@@ -95,7 +96,7 @@ func TestStatementImportPreviewCommitUndo(t *testing.T) {
 	if got := c.balance(bca.ID); got != 1_600_500 {
 		t.Fatalf("balance after import %d", got)
 	}
-	list := must[domain.Page[domain.Transaction]](c, 200, "GET", "/api/transactions", nil)
+	list := must[domain.Page[model.Transaction]](c, 200, "GET", "/api/transactions", nil)
 	imported := 0
 	for _, tx := range list.Items {
 		if tx.ImportBatchID != nil && *tx.ImportBatchID == b.ID {
@@ -105,7 +106,7 @@ func TestStatementImportPreviewCommitUndo(t *testing.T) {
 	if imported != 3 {
 		t.Fatalf("imported rows %d", imported)
 	}
-	batches := must[[]domain.ImportBatch](c, 200, "GET", "/api/import/batches", nil)
+	batches := must[[]model.ImportBatch](c, 200, "GET", "/api/import/batches", nil)
 	if len(batches) != 1 || batches[0].Remaining != 3 || batches[0].FileName != "mutasi-jan.csv" {
 		t.Fatalf("batches %+v", batches)
 	}
@@ -116,23 +117,23 @@ func TestStatementImportPreviewCommitUndo(t *testing.T) {
 	if got := c.balance(bca.ID); got != 193_000 {
 		t.Fatalf("balance after undo %d", got)
 	}
-	if n := must[domain.Page[domain.Transaction]](c, 200, "GET", "/api/transactions", nil).Total; n != 1 {
+	if n := must[domain.Page[model.Transaction]](c, 200, "GET", "/api/transactions", nil).Total; n != 1 {
 		t.Fatalf("rows after undo %d", n)
 	}
 
 	// Validation and money safety.
 	bad := rows[0]
-	bad.CategoryID = c.category(domain.TxIncome, "Beasiswa") // expense row, income category
-	c.expect(400, "POST", "/api/import/commit", M{"walletId": bca.ID, "rows": []usecase.ImportRow{bad}})
+	bad.CategoryID = c.category(model.TxIncome, "Beasiswa") // expense row, income category
+	c.expect(400, "POST", "/api/import/commit", M{"walletId": bca.ID, "rows": []service.ImportRow{bad}})
 	big := rows[0]
 	big.Amount = 10_000_000
-	body := c.expect(409, "POST", "/api/import/commit", M{"walletId": bca.ID, "rows": []usecase.ImportRow{big}})
+	body := c.expect(409, "POST", "/api/import/commit", M{"walletId": bca.ID, "rows": []service.ImportRow{big}})
 	if !strings.Contains(body, "sesuaikan saldo") {
 		t.Fatalf("insufficient message: %s", body)
 	}
 	// A file whose columns are not recognised returns no rows and no mapping, so
 	// the page asks the person to point at the date, description and amount columns.
-	if u := must[usecase.ImportPreview](c, 200, "POST", "/api/import/preview", M{"walletId": bca.ID, "csv": "A,B\nx,y\n"}); len(u.Rows) != 0 || u.Mapping.Date != -1 {
+	if u := must[service.ImportPreview](c, 200, "POST", "/api/import/preview", M{"walletId": bca.ID, "csv": "A,B\nx,y\n"}); len(u.Rows) != 0 || u.Mapping.Date != -1 {
 		t.Fatalf("unrecognised file %+v", u)
 	}
 	other := e.newUser("")

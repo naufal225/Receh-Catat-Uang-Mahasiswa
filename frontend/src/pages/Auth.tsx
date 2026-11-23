@@ -1,5 +1,6 @@
 // Login and registration. Registration needs only name, email and password:
 // no OTP, no email verification, as specified.
+import { brand } from '../brand';
 import { useState, type FormEvent, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import { GoogleButton, oauthMessage, OrDivider, takeServerNotice, useGoogleEnabled } from '../components/GoogleButton';
@@ -14,7 +15,7 @@ function AuthLayout({ children }: { children: ReactNode }) {
   return (
     <div className="auth">
       <div className="auth-art">
-        <Link to="/" className="brand" style={{ color: '#fffdf8', padding: 0 }}><Logo /> Receh</Link>
+        <Link to="/" className="brand" style={{ color: '#fffdf8', padding: 0 }}><Logo /> {brand.name}</Link>
         <div>
           <h2>Setiap rupiah <em>kelihatan</em>, dari BCA sampai GoPay.</h2>
           <p style={{ color: '#c9d4cf', marginTop: 14, maxWidth: 420 }}>Catat dalam hitungan detik, lihat ke mana uang pergi, dan biarkan tagihan rutin tercatat sendiri.</p>

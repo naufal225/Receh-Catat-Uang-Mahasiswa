@@ -14,6 +14,7 @@ import (
 
 	"receh/internal/app"
 	"receh/internal/domain"
+	"receh/internal/modules/finance/model"
 	"receh/internal/platform/googleoauth"
 )
 
@@ -198,7 +199,7 @@ func TestGoogleSignUpCreatesAccountAndSession(t *testing.T) {
 	if me.Email != "rina@gmail.com" || me.Name != "Rina Mahasiswi" || !me.GoogleLinked || me.HasPassword {
 		t.Fatalf("me = %+v", me)
 	}
-	if cats := must[[]domain.Category](c, 200, "GET", "/api/categories", nil); len(cats) == 0 {
+	if cats := must[[]model.Category](c, 200, "GET", "/api/categories", nil); len(cats) == 0 {
 		t.Fatal("new Google account has no starter categories")
 	}
 	sessions := must[[]domain.Session](c, 200, "GET", "/api/sessions", nil)

@@ -52,7 +52,7 @@ func (s *Server) notificationPrefs(w http.ResponseWriter, r *http.Request, u *do
 }
 
 func (s *Server) saveNotificationPrefs(w http.ResponseWriter, r *http.Request, u *domain.User, _ *domain.Session) {
-	var in usecase.PrefsView
+	var in usecase.PrefsInput
 	if !readJSON(w, r, &in) {
 		return
 	}

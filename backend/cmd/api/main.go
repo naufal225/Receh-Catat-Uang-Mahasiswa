@@ -52,12 +52,15 @@ func run() error {
 	if _, err := os.Stat(staticDir); err != nil {
 		staticDir = "" // API-only: the Vite dev server is serving the frontend.
 	}
-	a := app.New(app.Params{
+	a, err := app.New(app.Params{
 		DB: db, Clock: usecase.RealClock{Loc: cfg.Location}, BcryptCost: bcrypt.DefaultCost + 2,
 		GeoIPURL: cfg.GeoIPURL, CookieSecure: cfg.CookieSecure, TrustProxy: cfg.TrustProxy, StaticDir: staticDir,
 		SessionCacheTTL: cfg.SessionTTL, DashboardCacheTTL: cfg.DashboardTTL,
-		Google: googleProvider(cfg), BillingEnabled: cfg.BillingEnabled,
+		Google: googleProvider(cfg), BillingEnabled: cfg.BillingEnabled, SweepEvery: cfg.SweepEvery, AppName: cfg.AppName,
 	})
+	if err != nil {
+		return err
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -72,7 +75,7 @@ func run() error {
 		log.Printf("    sandi: %s", generated)
 	}
 
-	a.StartBackground(ctx, cfg.SweepEvery)
+	a.StartBackground(ctx)
 
 	srv := &http.Server{
 		Addr: cfg.Addr, Handler: a.Handler,
@@ -81,7 +84,7 @@ func run() error {
 	}
 	serveErr := make(chan error, 1)
 	go func() {
-		log.Printf("Receh berjalan di http://localhost%s", cfg.Addr)
+		log.Printf("%s berjalan di http://localhost%s", cfg.AppName, cfg.Addr)
 		serveErr <- srv.ListenAndServe()
 	}()
 

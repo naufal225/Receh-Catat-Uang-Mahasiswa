@@ -137,63 +137,61 @@ Konfigurasi lain ada di `backend/.env.example`. Yang penting di produksi: `COOKI
 
 ---
 
-## 3. Arsitektur backend (clean architecture)
+## 3. Arsitektur backend (clean architecture + modul)
 
-Dependensi hanya mengarah ke dalam: `delivery → usecase → domain ← repository`.
-`domain` tidak meng-import apa pun dari lapisan luar.
+Kode dibagi dua: **inti** (akun, sesi, Google, admin, audit, paket/limit, notifikasi, cache)
+dan **modul fitur** di `internal/modules/<nama>`. Inti tidak pernah meng-import modul;
+modul memakai inti lewat `modules.Host`. Modul keuangan adalah contoh yang bisa dicopot.
+Di dalam inti maupun modul, dependensi tetap mengarah ke dalam: `api → service → model ← store`.
 
 ```
 backend/
-├─ cmd/api/main.go                 Titik masuk: config → DB → app → HTTP server, graceful shutdown
+├─ cmd/api/main.go                 Titik masuk: config → DB → app (migrasi modul) → HTTP server, graceful shutdown
 └─ internal/
-   ├─ domain/                      INTI: entitas, aturan, error, interface (port)
-   │  ├─ entities.go               User, Wallet, Transaction, Recurring, AuditLog, read model dashboard/laporan
-   │  ├─ errors.go                 AppError (kode stabil + pesan ramah); ErrInsufficient, ErrAccountFrozen, …
-   │  ├─ ports.go                  Interface repository + GeoLocator + Clock
-   │  └─ schedule.go               NextOccurrence: hitung jatuh tempo (tanggal 31 → 28 Feb → 31 Mar)
-   ├─ usecase/                     PERILAKU APLIKASI (tanpa SQL, tanpa HTTP)
-   │  ├─ auth.go                   Daftar, masuk, sesi, ganti/buat sandi, rate limit, buffer last-seen (mutex)
-   │  ├─ oauth.go                  Masuk dengan Google: state + PKCE, cari/tautkan/buat akun, cek status & role
-   │  ├─ audit.go                  AuditRecorder: tulis log langsung, cari lokasi di worker goroutine
-   │  ├─ wallet.go                 CRUD dompet; dompet berisi riwayat diarsipkan, bukan dihapus
-   │  ├─ category.go               CRUD kategori; tolak hapus kategori yang masih dipakai
-   │  ├─ transaction.go            Validasi + kunci mutex dompet → repository (atomik)
-   │  ├─ transfer.go               Pindah uang + biaya admin; kunci mutex kedua dompet; biaya terakhir per rute
-   │  ├─ budget.go                 Anggaran bulanan; terpakai dihitung dari transaksi, bukan disimpan
-   │  ├─ goal.go                   Target tabungan (setoran manual / ikut saldo dompet), mutex per target
-   │  ├─ notification.go           Antrean channel + worker goroutine (peristiwa) + scheduler + worker pool (waktu)
-   │  ├─ entry.go                  Ketik cepat, saran nama, pratinjau & impor CSV per batch, batalkan impor
-   │  ├─ membership.go             Paket Gratis/Premium, hadiah admin, kode undangan
-   │  ├─ recurring.go              Jadwal rutin + scheduler (ticker) + worker pool goroutine
-   │  ├─ dashboard.go              Bucket per hari/minggu/bulan/tahun; query paralel; cache berversi
-   │  ├─ report.go                 Kumpulkan data bulanan secara paralel → ReportRenderer (PDF)
-   │  ├─ admin.go                  Tambah user, ubah status, audit log, admin pertama
-   │  └─ common.go                 Validasi, kategori bawaan, helper parallel(), notifier, RealClock
-   ├─ repository/mysql/            IMPLEMENTASI PORT dengan MySQL 8 (InnoDB)
-   │  ├─ schema.sql                Tabel + CHECK(balance >= 0) + unique index anti double-posting
-   │  ├─ db.go                     Open (buat DB jika belum ada, schema per statement, pool), inTx + retry deadlock
-   │  ├─ transfers.go              Transfer + 2 leg + baris biaya dalam satu commit; saldo diubah urut id
-   │  └─ users/sessions/wallets/categories/transactions/recurring/audit.go
-   ├─ repository/cached/           DECORATOR CACHE di atas port (usecase tidak tahu ada cache)
-   │  └─ cached.go                 Sesi (per token) & user (per id), dihapus seketika saat revoke/suspend/freeze
-   ├─ delivery/http/               LAPISAN HTTP (tanpa aturan bisnis)
-   │  ├─ router.go                 Tabel route (net/http 1.22+ pattern) + penyaji SPA frontend/dist
-   │  ├─ middleware.go             Guard anyone/userRead/userWrite/admin, cookie, CSRF origin check,
-   │  │                            header keamanan, log, recover panic, IP klien
-   │  ├─ respond.go                JSON in/out, AppError → status HTTP
-   │  ├─ handlers_oauth.go         /api/auth/providers, /google/start (302 ke Google), /google/callback
-   │  └─ handlers_auth/finance/transfer/admin.go
-   ├─ platform/                    ALAT TEKNIS KECIL YANG BISA DIPAKAI ULANG
-   │  ├─ cache/                    TTL map (sync.RWMutex + goroutine pembersih) + versi data per user
-   │  ├─ googleoauth/              Klien Google OIDC dengan net/http: URL otorisasi, tukar code, userinfo
-   │  ├─ keymutex/                 sync.Mutex per kunci (per dompet), urut agar bebas deadlock
-   │  ├─ ratelimit/                Fixed-window limiter berbasis sync.Mutex
-   │  ├─ geoip/                    IP → kota (cache + mutex; IP lokal tidak dikirim keluar)
-   │  ├─ useragent/                User-Agent → "Chrome di Android"
-   │  └─ pdf/                      Penulis PDF minimal (pdf.go) + tata letak laporan (report.go)
-   ├─ config/config.go             Baca env + .env, default
-   └─ app/app.go                   Composition root: merakit semua lapisan; dipakai main & tes
+   ├─ domain/                      INTI: User, Session, AuditLog, paket (LimitDef/Limits/Usage), notifikasi, error, port
+   ├─ usecase/                     PERILAKU INTI (tanpa SQL, tanpa HTTP)
+   │  ├─ auth.go / oauth.go        Daftar, masuk, sesi, Google (state + PKCE), rate limit
+   │  ├─ common.go                 UserHooks (modul menyiapkan akun baru), validasi, RealClock
+   │  ├─ membership.go             Paket Gratis/Premium; limit & penghitung pemakaian didaftarkan modul
+   │  ├─ notification.go           NotificationSource dari modul + antrean channel + worker + scheduler + inbox/prefs
+   │  ├─ admin.go / audit.go       Kelola user, audit log (lokasi dicari di worker goroutine)
+   ├─ kit/                         Helper bersama inti & modul: Parallel, CleanName, FormatRp, CheckLimit, Notifier
+   ├─ repository/mysql/            Store inti + helper ekspor (InTx, ApplySchema, Migrate, …) untuk store modul
+   ├─ repository/cached/           Decorator cache sesi & user
+   ├─ delivery/http/               Router inti, guard, JSON; Server.Mount(...) untuk rute modul
+   ├─ modules/
+   │  ├─ module.go                 Kontrak Module {Name, Migrate, Init} dan Host (DB, Clock, Locks, Changes, Plans, …)
+   │  └─ finance/                  MODUL CONTOH
+   │     ├─ module.go              Init: rakit service, daftarkan limit, usage, notifikasi, hook user baru, rute, job
+   │     ├─ model/                 Entitas & port keuangan, ParseQuick, ParseStatement, NextOccurrence
+   │     ├─ service/               Dompet, transaksi, transfer, anggaran, target, rutin, laporan, impor, notifikasi
+   │     ├─ store/                 MySQL + schema.sql (ter-embed) + migrasi kolom milik modul
+   │     ├─ api/                   Handler HTTP + routes.go
+   │     └─ report/                Tata letak laporan PDF bulanan
+   ├─ platform/                    cache, keymutex, ratelimit, geoip, googleoauth, useragent, pdf (penulis PDF minimal)
+   ├─ config/                      Env + .env (APP_NAME, DB_*, BILLING_ENABLED, GOOGLE_*, …)
+   └─ app/                         Composition root (app.go) + daftar modul (modules.go)
 ```
+
+### 3-M. Membuat atau mencopot modul
+
+**Mencopot modul keuangan:** hapus `backend/internal/modules/finance`, baris `finance.New()` di
+`backend/internal/app/modules.go`, folder `frontend/src/modules/finance`, dan baris `finance` di
+`frontend/src/modules/index.ts`. Inti tetap build dan tesnya hijau (`TestCoreRunsWithoutModules`
+menjalankan aplikasi tanpa modul pada database kosong). Tabel modul di database lama tidak dihapus otomatis.
+
+**Membuat modul baru** (`internal/modules/<nama>`): implementasikan `modules.Module`.
+- `Migrate(db)`: `mysql.ApplySchema(db, schemaSQL)` + `mysql.Migrate(db, []mysql.Migration{...})`. Idempoten.
+- `Init(h)`: rakit service dari `h.DB`, `h.Clock`, `h.Locks`, lalu daftarkan yang perlu saja:
+  - `h.Membership.AddLimits(domain.LimitDef{Key: "<nama>.items", Free: 5, Premium: domain.Unlimited})`
+    dan `AddUsageCounter(...)`; cek di service dengan `kit.CheckLimit` / `kit.RequireFeature` lewat `h.Plans`.
+  - `h.Notifications.AddSource(src)` (jenis, pengaturan, dan `Evaluate`; dedup lewat `RefKey`).
+  - `h.Users.OnUserCreated(fn)` untuk data awal akun baru.
+  - `h.Server.Mount(func(mux, g) { mux.HandleFunc("GET /api/<nama>", g.Read(handler)) })`.
+  - `h.Background(job)` untuk goroutine yang berjalan selama aplikasi hidup.
+  - Setelah menulis data pengguna, panggil `h.Changes.Changed(userID)` (cache & notifikasi ikut segar).
+- Frontend: buat `src/modules/<nama>/index.tsx` bertipe `AppModule` (`pages`, `nav`, opsional
+  `Provider`, `Overlay`, `primary`) lalu tambahkan ke `src/modules/index.ts`.
 
 ### Alur satu permintaan: "catat pengeluaran Rp 25.000 dari GoPay"
 
@@ -201,13 +199,13 @@ backend/
 React TransactionForm ──POST /api/transactions──► middleware: recover → log → header → sameOrigin
    ► router: userWrite guard (cookie → AuthService.Authenticate → cek role & status beku)
         (sesi & user diambil dari cache memori; miss → MySQL)
-   ► handlers_finance.createTransaction (decode JSON)
-   ► usecase.TransactionService.Create
+   ► finance/api handlers_finance.createTransaction (decode JSON)
+   ► service.TransactionService.Create (modul finance)
         1. validasi (nominal, nama, tanggal, dompet & kategori milik user, jenis kategori cocok)
         2. locks.Lock(walletID)              ← sync.Mutex khusus dompet ini
         3. repo.Create → BEGIN (InnoDB)
                UPDATE wallets SET balance = balance - 25000 WHERE id=? AND balance - 25000 >= 0
-               (0 baris = saldo kurang → ErrInsufficient → HTTP 409; baris dompet terkunci sampai commit)
+               (0 baris = saldo kurang → model.ErrInsufficient → HTTP 409; baris dompet terkunci sampai commit)
                INSERT INTO transactions …
            COMMIT   (deadlock/lock timeout → diulang otomatis maks. 3×)
         4. unlock, lalu versi data user naik → cache dashboard user ini tidak terpakai lagi
@@ -268,7 +266,7 @@ bisa diubah satu per satu lewat endpoint transaksi (HTTP 409), selalu lewat tran
 | Lapisan | Apa yang di-cache | Kenapa di sini | Bagaimana tetap benar |
 |---|---|---|---|
 | Backend `repository/cached` | Sesi (per hash token) & user (per id), TTL `SESSION_CACHE_TTL`=30s | Dibaca di **setiap** request; dengan MySQL lewat jaringan, ini 2 query per request | Logout, cabut perangkat, suspend, freeze, ganti sandi **menghapus entri seketika**. Penghitung *epoch* mencegah request yang sedang membaca DB menaruh data lama kembali ke cache sesudah dicabut |
-| Backend `usecase/dashboard.go` | Hasil dashboard per (user, unit, offset, dompet, hari ini), TTL `DASHBOARD_CACHE_TTL`=60s | 6 query agregasi; berpindah Harian/Mingguan/periode sering mengulang permintaan yang sama | Kunci cache memuat **versi data user**. Setiap penulisan (transaksi, transfer, dompet, kategori, jadwal rutin, termasuk scheduler) menaikkan versi, jadi data lama tidak pernah tersaji |
+| Backend `finance/service/dashboard.go` | Hasil dashboard per (user, unit, offset, dompet, hari ini), TTL `DASHBOARD_CACHE_TTL`=60s | 6 query agregasi; berpindah Harian/Mingguan/periode sering mengulang permintaan yang sama | Kunci cache memuat **versi data user**. Setiap penulisan (transaksi, transfer, dompet, kategori, jadwal rutin, termasuk scheduler) menaikkan versi, jadi data lama tidak pernah tersaji |
 | Frontend `lib/hooks.ts` | Respons GET terakhir per endpoint, di memori tab | Kembali ke halaman/periode yang sama langsung tampil tanpa skeleton | *Stale-while-revalidate*: selalu tetap meminta data baru; dikosongkan saat logout/ganti akun; tidak pernah ke localStorage (data keuangan) |
 
 ### 3c. Masuk dengan Google (OAuth 2.0 + PKCE)
@@ -309,19 +307,19 @@ bersama (atau dimatikan dengan TTL `0`), karena pencabutan sesi di instance A ti
 | Tempat | Mekanisme | Mencegah / tujuan |
 |---|---|---|
 | `platform/keymutex` | `sync.Mutex` per dompet, diambil terurut | Dua pengeluaran bersamaan dari dompet yang sama membuat saldo minus atau update hilang. Dompet berbeda tetap paralel |
-| `usecase/recurring.go` `runMu` | `sync.Mutex` | Dua sweep scheduler berjalan bersamaan |
-| `usecase/recurring.go` `RunDue` | worker pool goroutine + `sync.WaitGroup` + `atomic` | Memproses banyak jadwal jatuh tempo secara paralel |
-| `usecase/recurring.go` `RunScheduler` | goroutine + `time.Ticker` | Mencatat transaksi rutin tiap jam dan mengejar ketertinggalan saat server mati |
+| `finance/service/recurring.go` `runMu` | `sync.Mutex` | Dua sweep scheduler berjalan bersamaan |
+| `finance/service/recurring.go` `RunDue` | worker pool goroutine + `sync.WaitGroup` + `atomic` | Memproses banyak jadwal jatuh tempo secara paralel |
+| `finance/service/recurring.go` `RunScheduler` | goroutine + `time.Ticker` | Mencatat transaksi rutin tiap jam dan mengejar ketertinggalan saat server mati |
 | `usecase/audit.go` | channel + 2 worker goroutine | Lookup lokasi yang lambat tidak menunda login |
 | `usecase/auth.go` `touchMu` | `sync.Mutex` + goroutine `Maintain` | Buffer "terakhir aktif" ditulis massal tiap 30 detik, bukan per request |
 | `usecase/common.go` `parallel()` | goroutine + `WaitGroup` + `Mutex` (error pertama) | Query dashboard dan laporan berjalan bersamaan |
 | `platform/ratelimit`, `platform/geoip` | `sync.Mutex` | Map bersama diakses banyak request sekaligus |
-| `usecase/transfer.go` | `keymutex.Lock(asal, tujuan)` (2–4 kunci saat edit) | Transfer A→B dan B→A bersamaan tidak deadlock dan tidak bisa membuat salah satu minus |
+| `finance/service/transfer.go` | `keymutex.Lock(asal, tujuan)` (2–4 kunci saat edit) | Transfer A→B dan B→A bersamaan tidak deadlock dan tidak bisa membuat salah satu minus |
 | `platform/cache` `TTL` | `sync.RWMutex` + goroutine janitor per cache | Banyak request membaca cache bersamaan, satu menulis; entri kedaluwarsa dibersihkan tiap menit |
 | `platform/cache` `Versions` | `sync.Mutex` | Versi data per user dinaikkan dari request dan scheduler sekaligus |
 | `repository/cached` epoch | `sync/atomic` | Invalidasi yang berbarengan dengan pembacaan DB tidak "hilang" |
 | `usecase/notification.go` | channel + worker goroutine; ticker + pool 4 goroutine | Notifikasi anggaran muncul sesaat setelah belanja tanpa memperlambat request; penyapuan berkala untuk tagihan besok, pengingat malam, ringkasan Senin |
-| `usecase/goal.go` `perGoal` | `keymutex` per target | Dua penarikan bersamaan tidak membuat tabungan minus (diuji 20 paralel) |
+| `finance/service/goal.go` `perGoal` | `keymutex` per target | Dua penarikan bersamaan tidak membuat tabungan minus (diuji 20 paralel) |
 | `platform/cache` `Take` | `sync.RWMutex` (ambil+hapus atomik) | State OAuth tidak bisa dipakai dua kali |
 
 Lapisan kedua pertahanan ada di database: `CHECK (balance >= 0)`, `UPDATE … WHERE balance + ? >= 0`
@@ -339,40 +337,28 @@ Tes konkurensi (semua di MySQL sungguhan):
 ## 4. Arsitektur frontend
 
 ```
-frontend/
-├─ index.html                 Font (Bricolage Grotesque, Plus Jakarta Sans, DM Mono), theme-init.js
-├─ public/theme-init.js       Pasang tema tersimpan sebelum render (CSP melarang script inline)
-├─ vite.config.ts             Proxy /api → :8080 saat dev
-└─ src/
-   ├─ main.tsx                Provider: Toast → Confirm → Auth → Finance → App
-   ├─ App.tsx                 Tabel route + guard role (/app untuk user, /admin untuk admin)
-   ├─ styles.css              DESIGN SYSTEM: token warna terang/gelap, komponen, layout responsif
-   ├─ lib/
-   │  ├─ api.ts               fetch wrapper; ApiError; event global (401 → logout, 403 beku → refresh)
-   │  ├─ auth.tsx             AuthProvider: user saat ini, login/logout
-   │  ├─ finance.tsx          FinanceProvider: cache dompet+kategori, `version` untuk refetch, modal transaksi global
-   │  ├─ router.ts            Router ±30 baris di atas History API (useSyncExternalStore)
-   │  ├─ hooks.ts             useFetch + cache stale-while-revalidate, useDebounced, useStoredState
-   │  ├─ format.ts            Rupiah, tanggal Indonesia, label
-   │  └─ types.ts             Tipe yang mencerminkan JSON backend
-   ├─ components/
-   │  ├─ AppShell.tsx         Sidebar (desktop) / top bar + bottom nav dengan tombol + (mobile), tema, banner beku, pintasan N
-   │  ├─ GoogleButton.tsx     Tombol Google (tampil hanya bila aktif), pemisah "atau", pesan ?oauth=
-   │  ├─ TransactionForm.tsx  Modal global: Pengeluaran / Pemasukan / Transfer; form catat/ubah transaksi
-   │  ├─ TransferForm.tsx     Dari → Ke (tombol tukar), nominal, biaya admin (terisi dari rute terakhir),
-   │  │                       pratinjau saldo kedua dompet sebelum & sesudah, ubah/hapus transfer
-   │  ├─ charts.tsx           BarChart & PieChart SVG: hover, klik, keyboard, label aksesibel
-   │  ├─ TxRow.tsx            Baris transaksi (dipakai dashboard, riwayat)
-   │  ├─ ui.tsx               Modal (<dialog>), Toast, Confirm, Field, AmountInput, ColorPicker, Empty, …
-   │  └─ Icon.tsx             Ikon garis inline + logo
-   └─ pages/                  Landing, Auth (Masuk/Daftar), Dashboard, Transactions, Wallets,
-                              Categories, Recurring, Reports, Security, AdminUsers, AdminAudit
+frontend/src/
+├─ main.tsx                Provider: Toast → Confirm → Auth → App (inti) → provider tiap modul → App
+├─ App.tsx                 Route inti + halaman dari semua modul, guard role
+├─ brand.ts                Nama produk, tagline, prefix localStorage (warna: token di styles.css)
+├─ styles.css              DESIGN SYSTEM: token warna terang/gelap, komponen, layout responsif
+├─ lib/                    api, auth, app (membership, version, changed, readOnly, limitOf/hasFeature),
+│                          router, hooks (useFetch SWR), format, types (tipe inti)
+├─ components/             AppShell (nav & tombol utama dari modul), Notifications (ikon/label dari server),
+│                          GoogleButton, ui, Icon
+├─ pages/                  Inti: Landing, Auth, Home (bila tak ada modul), Security, Subscription,
+│                          NotificationSettings, AdminUsers, AdminAudit, AdminPromos
+└─ modules/
+   ├─ types.ts             Kontrak AppModule
+   ├─ index.ts             Daftar modul yang dipasang
+   └─ finance/             index.tsx (definisi modul), context.tsx (dompet, kategori, modal Catat),
+                           types.ts, format.ts, limits.ts, components/, pages/
 ```
 
 **Interaksi data:** halaman mengambil data lewat `useFetch('/…?v=' + version)`. Setiap aksi tulis
-(transaksi, dompet, jadwal) memanggil `changed()` di `FinanceProvider`, yang menaikkan `version`.
-Semua halaman yang sedang terbuka lalu memuat ulang, jadi saldo di sidebar form, dashboard, dan
-riwayat selalu konsisten tanpa state management tambahan.
+memanggil `changed()` (inti; modul keuangan membungkusnya agar dompet/kategori ikut dimuat ulang),
+yang menaikkan `version` dan memuat ulang paket/pemakaian. Semua halaman yang terbuka lalu memuat
+ulang, jadi angka di mana pun selalu konsisten tanpa state management tambahan.
 
 ### Keputusan UI/UX
 - **Paham sekali lihat:** saldo total sebagai angka besar, struk transaksi terbaru di kolom kanan,

@@ -1,9 +1,9 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import App from './App';
+import App, { ModuleProviders } from './App';
 import { ConfirmProvider, ToastProvider } from './components/ui';
+import { AppProvider } from './lib/app';
 import { AuthProvider } from './lib/auth';
-import { FinanceProvider } from './lib/finance';
 import './styles.css';
 
 createRoot(document.getElementById('root')!).render(
@@ -11,9 +11,11 @@ createRoot(document.getElementById('root')!).render(
     <ToastProvider>
       <ConfirmProvider>
         <AuthProvider>
-          <FinanceProvider>
-            <App />
-          </FinanceProvider>
+          <AppProvider>
+            <ModuleProviders>
+              <App />
+            </ModuleProviders>
+          </AppProvider>
         </AuthProvider>
       </ConfirmProvider>
     </ToastProvider>

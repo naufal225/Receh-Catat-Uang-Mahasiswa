@@ -2,31 +2,31 @@ package domain
 
 import (
 	"context"
-	"slices"
 	"time"
 )
 
-// NotificationKind names one kind of in-app reminder. Each can be switched off.
+// NotificationKind names one kind of in-app reminder. Modules declare their
+// own kinds (NotificationKindDef); each can be switched off by the user.
 type NotificationKind string
 
-const (
-	NotifyBillDue       NotificationKind = "bill_due"       // a recurring bill is due tomorrow
-	NotifyBillFailed    NotificationKind = "bill_failed"    // a bill could not post: balance too low
-	NotifyBudgetWarning NotificationKind = "budget_warning" // a budget passed 80%
-	NotifyBudgetOver    NotificationKind = "budget_over"    // a budget passed 100%
-	NotifyLowBalance    NotificationKind = "low_balance"    // a wallet fell below the threshold
-	NotifyGoalAchieved  NotificationKind = "goal_achieved"  // a savings goal reached its target
-	NotifyDailyReminder NotificationKind = "daily_reminder" // nothing recorded today (evening)
-	NotifyWeeklySummary NotificationKind = "weekly_summary" // last week in numbers (Monday)
-)
-
-// AllNotificationKinds is the order the settings page lists them in.
-var AllNotificationKinds = []NotificationKind{
-	NotifyBudgetWarning, NotifyBudgetOver, NotifyBillDue, NotifyBillFailed,
-	NotifyLowBalance, NotifyGoalAchieved, NotifyDailyReminder, NotifyWeeklySummary,
+// NotificationKindDef describes a kind for the settings page and the inbox.
+type NotificationKindDef struct {
+	Key   NotificationKind  `json:"key"`
+	Label map[string]string `json:"label"` // by language: "id", "en"
+	Icon  string            `json:"icon"`
+	Tone  string            `json:"tone"` // ok | warn | danger | neutral
 }
 
-func (k NotificationKind) Valid() bool { return slices.Contains(AllNotificationKinds, k) }
+// NotificationSetting is a number a module lets the user tune (a threshold,
+// an hour). Kind tells the UI how to show it: "amount", "hour" or "number".
+type NotificationSetting struct {
+	Key     string            `json:"key"`
+	Label   map[string]string `json:"label"`
+	Kind    string            `json:"kind"`
+	Default int64             `json:"default"`
+	Min     int64             `json:"min"`
+	Max     int64             `json:"max"`
+}
 
 // Notification is one message in a user's inbox. RefKey identifies the event
 // it is about (e.g. "budget_over:12:2026-01"); the database keeps it unique per
@@ -43,20 +43,22 @@ type Notification struct {
 	CreatedAt time.Time        `json:"createdAt"`
 }
 
-// NotificationPrefs are a user's choices. Kinds missing from Disabled are on.
+// NotificationPrefs are a user's choices. Kinds missing from Disabled are on;
+// settings missing from Settings use their declared default.
 type NotificationPrefs struct {
-	Disabled            map[NotificationKind]bool `json:"-"`
-	LowBalanceThreshold int64                     `json:"lowBalanceThreshold"`
-	// ReminderHour is the local hour after which the daily reminder may fire.
-	ReminderHour int `json:"reminderHour"`
+	Disabled map[NotificationKind]bool
+	Settings map[string]int64
 }
 
-const (
-	DefaultLowBalance   int64 = 50_000
-	DefaultReminderHour int   = 20
-)
-
 func (p NotificationPrefs) Enabled(k NotificationKind) bool { return !p.Disabled[k] }
+
+// Setting returns a module setting, or def when the user never changed it.
+func (p NotificationPrefs) Setting(key string, def int64) int64 {
+	if v, ok := p.Settings[key]; ok {
+		return v
+	}
+	return def
+}
 
 type NotificationRepository interface {
 	// Insert stores n unless a notification with the same (user, RefKey) exists;

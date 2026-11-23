@@ -17,20 +17,33 @@ const (
 // Unlimited marks a limit that does not apply.
 const Unlimited = -1
 
-// Limits are the numbers and switches one plan allows. Use cases check them;
-// the UI only mirrors them so it can explain a refusal before it happens.
-type Limits struct {
-	MaxWallets int  `json:"maxWallets"`
-	MaxBudgets int  `json:"maxBudgets"`
-	MaxGoals   int  `json:"maxGoals"`
-	CSVImport  bool `json:"csvImport"`
+// LimitDef declares one limit a module enforces, with its value on each plan.
+// Modules register their own (e.g. "finance.wallets"); the core only stores
+// and reports them, so adding a module never touches the plan code.
+type LimitDef struct {
+	Key string `json:"key"`
+	// Label by language code ("id", "en"), shown on the pricing page.
+	Label map[string]string `json:"label"`
+	// Feature limits are on (1) or off (0) rather than a count.
+	Feature bool `json:"feature"`
+	Free    int  `json:"free"`
+	Premium int  `json:"premium"`
 }
 
-func LimitsFor(p Plan) Limits {
-	if p == PlanPremium {
-		return Limits{MaxWallets: Unlimited, MaxBudgets: Unlimited, MaxGoals: Unlimited, CSVImport: true}
+// Limits maps a LimitDef key to its value on one plan.
+type Limits map[string]int
+
+// LimitsFor resolves every registered limit for a plan.
+func LimitsFor(p Plan, defs []LimitDef) Limits {
+	out := make(Limits, len(defs))
+	for _, d := range defs {
+		if p == PlanPremium {
+			out[d.Key] = d.Premium
+		} else {
+			out[d.Key] = d.Free
+		}
 	}
-	return Limits{MaxWallets: 3, MaxBudgets: 3, MaxGoals: 1, CSVImport: false}
+	return out
 }
 
 // Allows reports whether one more item fits under a limit.
@@ -77,14 +90,12 @@ type Membership struct {
 	Limits         Limits            `json:"limits"`
 	FreeLimits     Limits            `json:"freeLimits"`
 	Usage          Usage             `json:"usage"`
+	// Defs describes every limit, for the pricing and plan pages.
+	Defs []LimitDef `json:"defs"`
 }
 
-// Usage counts what a limit applies to.
-type Usage struct {
-	Wallets int `json:"wallets"`
-	Budgets int `json:"budgets"`
-	Goals   int `json:"goals"`
-}
+// Usage counts, per LimitDef key, what the user has now.
+type Usage map[string]int
 
 // PromoCode lets the developer hand out premium, e.g. to family. DurationDays
 // nil means the premium it grants never ends.

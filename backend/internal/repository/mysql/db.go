@@ -116,34 +116,47 @@ func createDatabase(cfg driver.Config) error {
 // applySchema runs schema.sql one statement at a time, so the DSN never needs
 // multiStatements (which would widen the blast radius of any injection bug).
 func applySchema(db *sql.DB) error {
+	if err := ApplySchema(db, schema); err != nil {
+		return err
+	}
+	return Migrate(db, migrations)
+}
+
+// ApplySchema runs CREATE ... IF NOT EXISTS statements; modules call it with
+// their own schema after the core one.
+func ApplySchema(db *sql.DB, schema string) error {
 	for _, stmt := range splitStatements(schema) {
 		if _, err := db.Exec(stmt); err != nil {
 			return fmt.Errorf("apply schema: %w\n%s", err, stmt)
 		}
 	}
-	return migrate(db)
+	return nil
 }
 
 // migrations add what CREATE TABLE IF NOT EXISTS cannot: columns introduced
 // after a database was first created. Each runs only if its column is missing.
-var migrations = []struct{ table, column, ddl string }{
+// Migration adds Column to Table with DDL when the column is missing.
+type Migration struct{ Table, Column, DDL string }
+
+var migrations = []Migration{
 	{"users", "google_sub", "ALTER TABLE users ADD COLUMN google_sub VARCHAR(64) NULL AFTER password_hash, ADD UNIQUE KEY uq_users_google (google_sub)"},
-	{"transactions", "import_batch_id", "ALTER TABLE transactions ADD COLUMN import_batch_id BIGINT NULL AFTER transfer_id, ADD KEY idx_tx_import (import_batch_id)"},
+	{"notification_prefs", "settings", "ALTER TABLE notification_prefs ADD COLUMN settings TEXT NULL"},
 }
 
-func migrate(db *sql.DB) error {
+// Migrate applies column migrations idempotently (modules pass their own).
+func Migrate(db *sql.DB, migrations []Migration) error {
 	for _, m := range migrations {
 		var n int
 		err := db.QueryRow(`SELECT COUNT(*) FROM information_schema.COLUMNS
-			WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`, m.table, m.column).Scan(&n)
+			WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`, m.Table, m.Column).Scan(&n)
 		if err != nil {
-			return fmt.Errorf("check column %s.%s: %w", m.table, m.column, err)
+			return fmt.Errorf("check column %s.%s: %w", m.Table, m.Column, err)
 		}
 		if n > 0 {
 			continue
 		}
-		if _, err := db.Exec(m.ddl); err != nil {
-			return fmt.Errorf("migrate %s.%s: %w", m.table, m.column, err)
+		if _, err := db.Exec(m.DDL); err != nil {
+			return fmt.Errorf("migrate %s.%s: %w", m.Table, m.Column, err)
 		}
 	}
 	return nil

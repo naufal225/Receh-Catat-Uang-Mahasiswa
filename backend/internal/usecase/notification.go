@@ -3,34 +3,38 @@ package usecase
 import (
 	"context"
 	"log"
-	"strconv"
 	"sync"
 	"time"
 
 	"receh/internal/domain"
 )
 
+// NotificationSource is implemented by modules that have something to tell a
+// user. The core handles storage, dedup (ref keys), preferences and delivery.
+type NotificationSource interface {
+	NotificationKinds() []domain.NotificationKindDef
+	NotificationSettings() []domain.NotificationSetting
+	// Evaluate emits what applies to one user now. timeDriven is true on the
+	// scheduled sweep (reminders that depend on the clock, not on a change).
+	Evaluate(ctx context.Context, userID int64, timeDriven bool, prefs domain.NotificationPrefs, emit func(domain.Notification)) error
+}
+
 // NotificationService writes in-app reminders. Two things drive it:
 //
 //   - Changed(userID), called after every write (it is a ChangeNotifier), puts
 //     the user on a channel. A worker goroutine re-checks that user's
-//     event-driven reminders (budgets, low balance, goals, failed bills), so a
-//     budget warning appears right after the expense that caused it.
+//     event-driven reminders right away (a budget warning appears just after
+//     the expense that caused it).
 //   - RunScheduler sweeps every active user on a ticker with a small goroutine
-//     pool, adding the time-driven ones (bill due tomorrow, evening reminder,
-//     Monday summary).
+//     pool, adding the time-driven ones (due tomorrow, evening, weekly).
 //
 // Every notification carries a ref key that is unique per user in the
 // database, so evaluating twice, or after a restart, never notifies twice.
 type NotificationService struct {
-	repo      domain.NotificationRepository
-	users     domain.UserRepository
-	wallets   domain.WalletRepository
-	recurring domain.RecurringRepository
-	txs       domain.TransactionRepository
-	budgets   BudgetMonths
-	goals     GoalLister
-	clock     domain.Clock
+	repo    domain.NotificationRepository
+	users   domain.UserRepository
+	clock   domain.Clock
+	sources []NotificationSource
 
 	queue   chan int64
 	mu      sync.Mutex
@@ -39,13 +43,15 @@ type NotificationService struct {
 	runMu   sync.Mutex // one sweep at a time
 }
 
-func NewNotificationService(r domain.NotificationRepository, u domain.UserRepository, w domain.WalletRepository,
-	rec domain.RecurringRepository, t domain.TransactionRepository, b BudgetMonths, g GoalLister, clock domain.Clock) *NotificationService {
+func NewNotificationService(r domain.NotificationRepository, u domain.UserRepository, clock domain.Clock) *NotificationService {
 	return &NotificationService{
-		repo: r, users: u, wallets: w, recurring: rec, txs: t, budgets: b, goals: g, clock: clock,
+		repo: r, users: u, clock: clock,
 		queue: make(chan int64, 1024), pending: map[int64]bool{}, workers: 4,
 	}
 }
+
+// AddSource registers a module's notifications (call before serving).
+func (s *NotificationService) AddSource(src NotificationSource) { s.sources = append(s.sources, src) }
 
 // Changed implements domain.ChangeNotifier. It never blocks a request: when
 // the queue is full the check is skipped and the next sweep catches up.
@@ -140,119 +146,24 @@ func (s *NotificationService) Sweep(ctx context.Context) (int, error) {
 	return created, nil
 }
 
-// Evaluate checks one user. timeDriven adds reminders that depend on the clock
-// rather than on a change (bill due tomorrow, evening reminder, weekly summary).
+// Evaluate asks every source about one user and stores what is new and enabled.
 func (s *NotificationService) Evaluate(ctx context.Context, userID int64, timeDriven bool) (int, error) {
 	prefs, err := s.repo.Prefs(ctx, userID)
 	if err != nil {
 		return 0, err
 	}
 	var all []domain.Notification
-	add := func(kind domain.NotificationKind, ref, title, body, link string) {
-		if prefs.Enabled(kind) {
-			all = append(all, domain.Notification{UserID: userID, Kind: kind, RefKey: ref, Title: title, Body: body, Link: link})
+	emit := func(n domain.Notification) {
+		if prefs.Enabled(n.Kind) {
+			n.UserID = userID
+			all = append(all, n)
 		}
 	}
-	today := s.clock.Today()
-	day, _ := domain.ParseDate(today)
-
-	// Budgets: one notice per budget per month and level.
-	if m, err := s.budgets.Month(ctx, userID, ""); err != nil {
-		return 0, err
-	} else {
-		for _, b := range m.Items {
-			id := strconv.FormatInt(b.ID, 10)
-			switch b.Level {
-			case domain.BudgetOver:
-				add(domain.NotifyBudgetOver, "budget_over:"+id+":"+m.Month, "Anggaran "+b.CategoryName+" terlewati",
-					"Terpakai "+formatRp(b.Spent)+" dari "+formatRp(b.Amount)+" ("+itoa(b.Percent)+"%) bulan ini.", "/app/anggaran")
-			case domain.BudgetWarning:
-				add(domain.NotifyBudgetWarning, "budget_warning:"+id+":"+m.Month, "Anggaran "+b.CategoryName+" hampir habis",
-					"Sisa "+formatRp(b.Remaining)+" ("+itoa(b.Percent)+"% terpakai), "+itoa(m.DaysLeft)+" hari lagi bulan ini.", "/app/anggaran")
-			}
+	for _, src := range s.sources {
+		if err := src.Evaluate(ctx, userID, timeDriven, prefs, emit); err != nil {
+			return 0, err
 		}
 	}
-
-	// Wallets: at most one low-balance notice per wallet per day, and only for
-	// wallets in use (a brand-new empty wallet is not news).
-	wallets, err := s.wallets.List(ctx, userID, false)
-	if err != nil {
-		return 0, err
-	}
-	balance := map[int64]domain.Wallet{}
-	for _, w := range wallets {
-		balance[w.ID] = w
-		if prefs.LowBalanceThreshold > 0 && w.Balance < prefs.LowBalanceThreshold {
-			used, err := s.wallets.HasTransactions(ctx, w.ID)
-			if err != nil {
-				return 0, err
-			}
-			if used {
-				add(domain.NotifyLowBalance, "low_balance:"+strconv.FormatInt(w.ID, 10)+":"+today, "Saldo "+w.Name+" menipis",
-					"Tinggal "+formatRp(w.Balance)+", di bawah batas "+formatRp(prefs.LowBalanceThreshold)+" yang kamu atur.", "/app/dompet")
-			}
-		}
-	}
-
-	// Goals reached: once per goal.
-	goals, err := s.goals.List(ctx, userID, false)
-	if err != nil {
-		return 0, err
-	}
-	for _, g := range goals {
-		if g.Achieved {
-			add(domain.NotifyGoalAchieved, "goal_achieved:"+strconv.FormatInt(g.ID, 10), "Target "+g.Name+" tercapai!",
-				"Kamu sudah mengumpulkan "+formatRp(g.Saved)+". Saatnya merayakan, atau arsipkan targetnya.", "/app/target")
-		}
-	}
-
-	// Recurring bills: failed for lack of money (event), due tomorrow (time).
-	rules, err := s.recurring.List(ctx, userID)
-	if err != nil {
-		return 0, err
-	}
-	tomorrow := day.AddDate(0, 0, 1).Format(domain.DateLayout)
-	for _, r := range rules {
-		if !r.Active || r.Type != domain.TxExpense {
-			continue
-		}
-		id := strconv.FormatInt(r.ID, 10)
-		if r.LastError != "" {
-			add(domain.NotifyBillFailed, "bill_failed:"+id+":"+r.NextDue, r.Name+" belum bisa dicatat",
-				"Saldo "+r.WalletName+" tidak cukup untuk "+formatRp(r.Amount)+". Receh mencoba lagi otomatis setelah saldo cukup.", "/app/rutin")
-		}
-		if timeDriven && r.NextDue == tomorrow {
-			body := formatRp(r.Amount) + " dari " + r.WalletName + " akan tercatat otomatis besok."
-			if w, ok := balance[r.WalletID]; ok && w.Balance < r.Amount {
-				body += " Saldo " + w.Name + " sekarang " + formatRp(w.Balance) + ", belum cukup."
-			}
-			add(domain.NotifyBillDue, "bill_due:"+id+":"+r.NextDue, "Tagihan besok: "+r.Name, body, "/app/rutin")
-		}
-	}
-
-	if timeDriven && len(wallets) > 0 {
-		now := s.clock.Now()
-		// Evening nudge when nothing was recorded today.
-		if now.Hour() >= prefs.ReminderHour {
-			days, err := s.txs.SumByDay(ctx, userID, 0, today, today)
-			if err != nil {
-				return 0, err
-			}
-			if len(days) == 0 {
-				add(domain.NotifyDailyReminder, "daily:"+today, "Sudah mencatat hari ini?",
-					"Belum ada pemasukan atau pengeluaran hari ini. Catat sekarang selagi masih ingat.", "/app")
-			}
-		}
-		// Monday: last week in numbers, compared with the week before.
-		if day.Weekday() == time.Monday {
-			if n, ok, err := s.weekly(ctx, userID, day); err != nil {
-				return 0, err
-			} else if ok {
-				add(domain.NotifyWeeklySummary, n.RefKey, n.Title, n.Body, n.Link)
-			}
-		}
-	}
-
 	created := 0
 	for i := range all {
 		ok, err := s.repo.Insert(ctx, &all[i])
@@ -266,54 +177,17 @@ func (s *NotificationService) Evaluate(ctx context.Context, userID int64, timeDr
 	return created, nil
 }
 
-func (s *NotificationService) weekly(ctx context.Context, userID int64, monday time.Time) (domain.Notification, bool, error) {
-	from, to := monday.AddDate(0, 0, -7), monday.AddDate(0, 0, -1)
-	sum := func(a, b time.Time) (in, out int64, err error) {
-		days, err := s.txs.SumByDay(ctx, userID, 0, a.Format(domain.DateLayout), b.Format(domain.DateLayout))
-		for _, d := range days {
-			in += d.Income
-			out += d.Expense
-		}
-		return in, out, err
-	}
-	in, out, err := sum(from, to)
-	if err != nil || in+out == 0 {
-		return domain.Notification{}, false, err
-	}
-	_, prevOut, err := sum(from.AddDate(0, 0, -7), from.AddDate(0, 0, -1))
-	if err != nil {
-		return domain.Notification{}, false, err
-	}
-	body := "Masuk " + formatRp(in) + ", keluar " + formatRp(out) + "."
-	cats, err := s.txs.SumByCategory(ctx, userID, 0, domain.TxExpense, from.Format(domain.DateLayout), to.Format(domain.DateLayout))
-	if err != nil {
-		return domain.Notification{}, false, err
-	}
-	if len(cats) > 0 {
-		body += " Terbesar: " + cats[0].Name + " " + formatRp(cats[0].Total) + "."
-	}
-	if prevOut > 0 && out != prevOut {
-		pct := (out - prevOut) * 100 / prevOut
-		if pct > 0 {
-			body += " Pengeluaran naik " + itoa64(pct) + "% dari minggu sebelumnya."
-		} else if pct < 0 {
-			body += " Pengeluaran turun " + itoa64(-pct) + "% dari minggu sebelumnya."
-		}
-	}
-	return domain.Notification{
-		RefKey: "weekly:" + from.Format(domain.DateLayout), Title: "Ringkasan minggu lalu", Body: body, Link: "/app",
-	}, true, nil
-}
-
 // ---- Inbox and preferences ----------------------------------------------------
 
 type Inbox struct {
 	Items  []domain.Notification `json:"items"`
 	Unread int                   `json:"unread"`
+	// Kinds describes every registered kind (icon, tone, label) for display.
+	Kinds []domain.NotificationKindDef `json:"kinds"`
 }
 
 func (s *NotificationService) Inbox(ctx context.Context, userID int64) (*Inbox, error) {
-	var out Inbox
+	out := Inbox{Kinds: s.kinds()}
 	err := parallel(
 		func() (e error) { out.Items, e = s.repo.List(ctx, userID, 30); return },
 		func() (e error) { out.Unread, e = s.repo.UnreadCount(ctx, userID); return },
@@ -335,11 +209,37 @@ func (s *NotificationService) MarkRead(ctx context.Context, userID int64, ids []
 	return s.repo.MarkRead(ctx, userID, ids, s.clock.Now())
 }
 
-// PrefsView is the settings page's shape: every kind with its on/off state.
+// kinds lists every kind registered by the sources.
+func (s *NotificationService) kinds() []domain.NotificationKindDef {
+	out := []domain.NotificationKindDef{}
+	for _, src := range s.sources {
+		out = append(out, src.NotificationKinds()...)
+	}
+	return out
+}
+
+// KindPref is one kind with its definition and on/off state.
+type KindPref struct {
+	domain.NotificationKindDef
+	Enabled bool `json:"enabled"`
+}
+
+// SettingPref is one module setting with its current value.
+type SettingPref struct {
+	domain.NotificationSetting
+	Value int64 `json:"value"`
+}
+
+// PrefsView is the settings page: every registered kind and setting.
 type PrefsView struct {
-	Kinds               map[domain.NotificationKind]bool `json:"kinds"`
-	LowBalanceThreshold int64                            `json:"lowBalanceThreshold"`
-	ReminderHour        int                              `json:"reminderHour"`
+	Kinds    []KindPref    `json:"kinds"`
+	Settings []SettingPref `json:"settings"`
+}
+
+// PrefsInput is what the settings page sends back.
+type PrefsInput struct {
+	Kinds    map[domain.NotificationKind]bool `json:"kinds"`
+	Settings map[string]int64                 `json:"settings"`
 }
 
 func (s *NotificationService) Prefs(ctx context.Context, userID int64) (*PrefsView, error) {
@@ -347,28 +247,47 @@ func (s *NotificationService) Prefs(ctx context.Context, userID int64) (*PrefsVi
 	if err != nil {
 		return nil, err
 	}
-	v := &PrefsView{Kinds: map[domain.NotificationKind]bool{}, LowBalanceThreshold: p.LowBalanceThreshold, ReminderHour: p.ReminderHour}
-	for _, k := range domain.AllNotificationKinds {
-		v.Kinds[k] = p.Enabled(k)
+	v := &PrefsView{Kinds: []KindPref{}, Settings: []SettingPref{}}
+	for _, src := range s.sources {
+		for _, k := range src.NotificationKinds() {
+			v.Kinds = append(v.Kinds, KindPref{NotificationKindDef: k, Enabled: p.Enabled(k.Key)})
+		}
+		for _, st := range src.NotificationSettings() {
+			v.Settings = append(v.Settings, SettingPref{NotificationSetting: st, Value: p.Setting(st.Key, st.Default)})
+		}
 	}
 	return v, nil
 }
 
-func (s *NotificationService) SavePrefs(ctx context.Context, userID int64, in PrefsView) (*PrefsView, error) {
-	if in.LowBalanceThreshold < 0 || in.LowBalanceThreshold > MaxAmount {
-		return nil, domain.Invalid("lowBalanceThreshold", "Batas saldo tidak valid.")
+func (s *NotificationService) SavePrefs(ctx context.Context, userID int64, in PrefsInput) (*PrefsView, error) {
+	kinds := map[domain.NotificationKind]bool{}
+	settings := map[string]domain.NotificationSetting{}
+	for _, src := range s.sources {
+		for _, k := range src.NotificationKinds() {
+			kinds[k.Key] = true
+		}
+		for _, st := range src.NotificationSettings() {
+			settings[st.Key] = st
+		}
 	}
-	if in.ReminderHour < 0 || in.ReminderHour > 23 {
-		return nil, domain.Invalid("reminderHour", "Jam pengingat 0 sampai 23.")
-	}
-	p := domain.NotificationPrefs{Disabled: map[domain.NotificationKind]bool{}, LowBalanceThreshold: in.LowBalanceThreshold, ReminderHour: in.ReminderHour}
+	p := domain.NotificationPrefs{Disabled: map[domain.NotificationKind]bool{}, Settings: map[string]int64{}}
 	for k, on := range in.Kinds {
-		if !k.Valid() {
+		if !kinds[k] {
 			return nil, domain.Invalid("kinds", "Jenis notifikasi tidak dikenal: "+string(k))
 		}
 		if !on {
 			p.Disabled[k] = true
 		}
+	}
+	for key, val := range in.Settings {
+		st, ok := settings[key]
+		if !ok {
+			return nil, domain.Invalid("settings", "Pengaturan tidak dikenal: "+key)
+		}
+		if val < st.Min || val > st.Max {
+			return nil, domain.Invalid(key, "Nilai di luar batas yang diizinkan.")
+		}
+		p.Settings[key] = val
 	}
 	if err := s.repo.SavePrefs(ctx, userID, p); err != nil {
 		return nil, err

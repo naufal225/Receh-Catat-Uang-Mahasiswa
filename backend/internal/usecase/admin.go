@@ -13,14 +13,15 @@ import (
 
 type AdminService struct {
 	users    domain.UserRepository
+	hooks    *UserHooks
 	sessions domain.SessionRepository
 	logs     domain.AuditRepository
 	audit    *AuditRecorder
 	cost     int
 }
 
-func NewAdminService(u domain.UserRepository, s domain.SessionRepository, l domain.AuditRepository, a *AuditRecorder, cost int) *AdminService {
-	return &AdminService{users: u, sessions: s, logs: l, audit: a, cost: cost}
+func NewAdminService(u domain.UserRepository, s domain.SessionRepository, l domain.AuditRepository, a *AuditRecorder, cost int, hooks *UserHooks) *AdminService {
+	return &AdminService{users: u, sessions: s, logs: l, audit: a, cost: cost, hooks: hooks}
 }
 
 // EnsureAdmin creates the first admin on an empty install. If no password was
@@ -74,7 +75,7 @@ func (s *AdminService) CreateUser(ctx context.Context, actor *domain.User, name,
 		return nil, err
 	}
 	u := &domain.User{Name: name, Email: email, PasswordHash: string(hash), Role: domain.RoleUser, Status: domain.StatusActive}
-	if err := s.users.CreateWithDefaults(ctx, u, DefaultCategories()); err != nil {
+	if err := s.hooks.CreateUser(ctx, s.users, u); err != nil {
 		var app *domain.AppError
 		if errors.As(err, &app) && app.Code == "EMAIL_TAKEN" {
 			return nil, &domain.AppError{Kind: app.Kind, Code: app.Code, Message: app.Message, Field: "email"}

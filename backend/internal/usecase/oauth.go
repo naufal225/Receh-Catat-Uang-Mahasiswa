@@ -151,7 +151,7 @@ func (s *AuthService) googleAccount(ctx context.Context, id *domain.OAuthIdentit
 		Name: googleName(id.Name, email), Email: email, GoogleSub: id.Subject,
 		Role: domain.RoleUser, Status: domain.StatusActive,
 	}
-	if err := s.users.CreateWithDefaults(ctx, u, DefaultCategories()); err != nil {
+	if err := s.hooks.CreateUser(ctx, s.users, u); err != nil {
 		return nil, false, err
 	}
 	u.GoogleLinked = true

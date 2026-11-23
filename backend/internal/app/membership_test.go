@@ -9,6 +9,7 @@ import (
 
 	"receh/internal/app"
 	"receh/internal/domain"
+	"receh/internal/modules/finance/model"
 )
 
 func newB2CEnv(t *testing.T) *env {
@@ -52,7 +53,7 @@ func TestFreePlanLimitAndAdminComplimentaryPremium(t *testing.T) {
 	me := must[domain.User](c, 200, "GET", "/api/auth/me", nil)
 
 	m := membershipOf(c)
-	if m.Plan != domain.PlanFree || !m.BillingEnabled || m.Limits.MaxWallets != 3 {
+	if m.Plan != domain.PlanFree || !m.BillingEnabled || m.Limits["finance.wallets"] != 3 {
 		t.Fatalf("new user membership %+v", m)
 	}
 	for i := range 3 {
@@ -62,7 +63,7 @@ func TestFreePlanLimitAndAdminComplimentaryPremium(t *testing.T) {
 	if !strings.Contains(body, "PLAN_LIMIT") {
 		t.Fatalf("4th wallet on free plan: %s", body)
 	}
-	if u := membershipOf(c).Usage; u.Wallets != 3 {
+	if u := membershipOf(c).Usage; u["finance.wallets"] != 3 {
 		t.Fatalf("usage %+v", u)
 	}
 
@@ -91,7 +92,7 @@ func TestFreePlanLimitAndAdminComplimentaryPremium(t *testing.T) {
 		t.Fatalf("after revoke %+v", m)
 	}
 	c.expect(403, "POST", "/api/wallets", walletBody("W5"))
-	if n := len(must[[]domain.Wallet](c, 200, "GET", "/api/wallets", nil)); n != 5 {
+	if n := len(must[[]model.Wallet](c, 200, "GET", "/api/wallets", nil)); n != 5 {
 		t.Fatalf("existing wallets after downgrade: %d", n)
 	}
 

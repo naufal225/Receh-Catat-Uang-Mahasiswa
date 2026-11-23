@@ -47,22 +47,10 @@ func (r *UserRepo) Create(ctx context.Context, u *domain.User) error {
 	return insertUser(ctx, r.db, u)
 }
 
-// CreateWithDefaults creates the user and their starter categories in one
-// commit, so an account never exists without its categories.
-func (r *UserRepo) CreateWithDefaults(ctx context.Context, u *domain.User, defaults []domain.Category) error {
-	return inTx(ctx, r.db, func(tx *sql.Tx) error {
-		if err := insertUser(ctx, tx, u); err != nil {
-			return err
-		}
-		for _, c := range defaults {
-			if _, err := tx.ExecContext(ctx,
-				`INSERT INTO categories (user_id, name, type, color) VALUES (?, ?, ?, ?)`,
-				u.ID, c.Name, c.Type, c.Color); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
+// Delete removes a user (used to undo a sign-up whose module setup failed).
+func (r *UserRepo) Delete(ctx context.Context, id int64) error {
+	_, err := r.db.ExecContext(ctx, `DELETE FROM users WHERE id = ?`, id)
+	return err
 }
 
 func (r *UserRepo) ByID(ctx context.Context, id int64) (*domain.User, error) {
