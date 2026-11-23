@@ -2,29 +2,33 @@
 // central "+" on mobile. Also hosts the theme toggle and the frozen banner.
 import { useEffect, useState, type ReactNode } from 'react';
 import { useAuth } from '../lib/auth';
-import { useFinance } from '../lib/finance';
+import { brand } from '../brand';
+import { useApp } from '../lib/app';
 import { useStoredState } from '../lib/hooks';
 import { navigate, useLocation } from '../lib/router';
-import { Icon, Logo, type IconName } from './Icon';
+import { modules } from '../modules';
+import type { NavItem, PrimaryAction } from '../modules/types';
+import { Icon, Logo } from './Icon';
 import { NotificationBell } from './Notifications';
 import { initial, Link, Modal } from './ui';
 
-type NavItem = { to: string; label: string; icon: IconName; short?: string };
-
-const userNav: NavItem[] = [
-  { to: '/app', label: 'Ringkasan', icon: 'home', short: 'Ringkasan' },
-  { to: '/app/transaksi', label: 'Riwayat transaksi', icon: 'list', short: 'Riwayat' },
-  { to: '/app/dompet', label: 'Dompet', icon: 'wallet', short: 'Dompet' },
-  { to: '/app/anggaran', label: 'Anggaran', icon: 'pie', short: 'Anggaran' },
-  { to: '/app/target', label: 'Target tabungan', icon: 'target' },
-  { to: '/app/rutin', label: 'Rutin & rencana', icon: 'repeat' },
-  { to: '/app/impor', label: 'Impor mutasi', icon: 'upload' },
-  { to: '/app/kategori', label: 'Kategori', icon: 'tag' },
-  { to: '/app/laporan', label: 'Laporan bulanan', icon: 'file' },
+const coreUserNav: NavItem[] = [
   { to: '/app/notifikasi', label: 'Notifikasi', icon: 'bell' },
   { to: '/app/keamanan', label: 'Perangkat & keamanan', icon: 'device' },
   { to: '/app/langganan', label: 'Langganan', icon: 'sparkle' },
 ];
+
+const moduleNav = modules.flatMap((m) => m.nav);
+// Without a module home page, the core one gets the first nav slot.
+const userNav: NavItem[] = [
+  ...(moduleNav.some((n) => n.to === '/app') ? [] : [{ to: '/app', label: 'Beranda', icon: 'home', short: 'Beranda' } as NavItem]),
+  ...moduleNav,
+  ...coreUserNav,
+];
+
+// The first module that declares a primary action owns the big "+" button.
+const primary: PrimaryAction | undefined = modules.find((m) => m.primary)?.primary;
+const noAction = () => ({ run: () => {}, disabled: true });
 
 const adminNav: NavItem[] = [
   { to: '/admin', label: 'Pengguna', icon: 'users', short: 'Pengguna' },
@@ -34,7 +38,7 @@ const adminNav: NavItem[] = [
 ];
 
 function ThemeToggle() {
-  const [theme, setTheme] = useStoredState<'light' | 'dark' | ''>('receh-theme', '');
+  const [theme, setTheme] = useStoredState<'light' | 'dark' | ''>(`${brand.storagePrefix}-theme`, '');
   useEffect(() => {
     if (theme) document.documentElement.dataset.theme = theme;
     else delete document.documentElement.dataset.theme;
@@ -49,7 +53,11 @@ function ThemeToggle() {
 
 export function AppShell({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth();
-  const { openTx, readOnly, membership } = useFinance();
+  const { readOnly, membership } = useApp();
+  // Static per build, so the hook order never changes between renders.
+  const action = (primary?.use ?? noAction)();
+  const openAction = action.run;
+  const actionDisabled = readOnly || !!action.disabled;
   const { path } = useLocation();
   const isAdmin = user?.role === 'admin';
   // "Langganan" only exists where something is sold (billing on).
@@ -57,19 +65,20 @@ export function AppShell({ children }: { children: ReactNode }) {
   const isPremium = !isAdmin && membership?.plan === 'premium' && membership.billingEnabled;
   const current = (to: string) => (to === '/app' || to === '/admin' ? path === to : path.startsWith(to));
 
-  // "N" opens the quick-add form from anywhere, unless the user is typing.
+  // The primary action's shortcut works from anywhere, unless the user is typing.
+  const shortcut = primary?.shortcut;
   useEffect(() => {
-    if (isAdmin || readOnly) return;
+    if (isAdmin || actionDisabled || !shortcut) return;
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement;
-      if (e.key.toLowerCase() !== 'n' || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key.toLowerCase() !== shortcut || e.metaKey || e.ctrlKey || e.altKey) return;
       if (t.closest('input, textarea, select, [contenteditable], dialog')) return;
       e.preventDefault();
-      openTx();
+      openAction();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [isAdmin, readOnly, openTx]);
+  }, [isAdmin, actionDisabled, openAction, shortcut]);
 
   async function signOut() {
     await logout();
@@ -86,11 +95,12 @@ export function AppShell({ children }: { children: ReactNode }) {
     <div className="shell">
       <aside className="sidebar" aria-label="Navigasi utama">
         <Link to={isAdmin ? '/admin' : '/app'} className="brand">
-          <Logo /> Receh
+          <Logo /> {brand.name}
         </Link>
-        {!isAdmin && (
-          <button type="button" className="btn btn-accent" style={{ marginBottom: 14 }} onClick={() => openTx()} disabled={readOnly} aria-keyshortcuts="N" title="Pintasan keyboard: N">
-            <Icon name="plus" size={18} /> Catat transaksi
+        {!isAdmin && primary && (
+          <button type="button" className="btn btn-accent" style={{ marginBottom: 14 }} onClick={openAction} disabled={actionDisabled}
+            aria-keyshortcuts={primary.shortcut?.toUpperCase()} title={primary.shortcut ? `Pintasan keyboard: ${primary.shortcut.toUpperCase()}` : undefined}>
+            <Icon name={primary.icon} size={18} /> {primary.label}
           </button>
         )}
         {isAdmin && <div className="nav-section">Panel admin</div>}
@@ -121,7 +131,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       <header className="mobile-top">
         <Link to={isAdmin ? '/admin' : '/app'} className="brand">
-          <Logo size={26} /> Receh
+          <Logo size={26} /> {brand.name}
         </Link>
         <div style={{ display: 'flex', gap: 2 }}>
           {!isAdmin && <NotificationBell />}
@@ -165,16 +175,16 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
       </Modal>
 
-      <nav className="bottom-nav" aria-label="Navigasi bawah" style={isAdmin ? { gridTemplateColumns: `repeat(${mobileItems.length}, 1fr)` } : undefined}>
+      <nav className="bottom-nav" aria-label="Navigasi bawah" style={isAdmin || !primary ? { gridTemplateColumns: `repeat(${mobileItems.length}, 1fr)` } : undefined}>
         {mobileItems.slice(0, 2).map((n) => (
           <Link key={n.to} to={n.to} aria-current={current(n.to) ? 'page' : undefined}>
             <Icon name={n.icon} /> {n.short}
           </Link>
         ))}
-        {!isAdmin && (
-          <button type="button" onClick={() => openTx()} disabled={readOnly} aria-label="Catat transaksi">
-            <span className="fab"><Icon name="plus" size={26} /></span>
-            Catat
+        {!isAdmin && primary && (
+          <button type="button" onClick={openAction} disabled={actionDisabled} aria-label={primary.label}>
+            <span className="fab"><Icon name={primary.icon} size={26} /></span>
+            {primary.short}
           </button>
         )}
         {mobileItems.slice(2).map((n) => (

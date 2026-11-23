@@ -22,27 +22,30 @@ type MembershipService struct {
 	ents    domain.EntitlementRepository
 	promos  domain.PromoRepository
 	users   domain.UserRepository
-	wallets domain.WalletRepository
 	audit   *AuditRecorder
 	clock   domain.Clock
 	// Guessing codes is the obvious abuse; a few tries per hour is plenty.
 	redeemLimit *ratelimit.Limiter
-	// counters lets later features (budgets, goals) report their usage.
-	counters []func(ctx context.Context, userID int64, u *domain.Usage) error
+	// Limits and usage counters registered by modules.
+	defs     []domain.LimitDef
+	counters []func(ctx context.Context, userID int64, u domain.Usage) error
 }
 
 func NewMembershipService(billing bool, e domain.EntitlementRepository, p domain.PromoRepository, u domain.UserRepository,
-	w domain.WalletRepository, a *AuditRecorder, clock domain.Clock) *MembershipService {
+	a *AuditRecorder, clock domain.Clock) *MembershipService {
 	return &MembershipService{
-		billing: billing, ents: e, promos: p, users: u, wallets: w, audit: a, clock: clock,
+		billing: billing, ents: e, promos: p, users: u, audit: a, clock: clock,
 		redeemLimit: ratelimit.New(10, time.Hour),
 	}
 }
 
 func (s *MembershipService) BillingEnabled() bool { return s.billing }
 
-// AddUsageCounter registers how a feature counts what a user has, for display.
-func (s *MembershipService) AddUsageCounter(fn func(ctx context.Context, userID int64, u *domain.Usage) error) {
+// AddLimits registers limits a module enforces (call before serving).
+func (s *MembershipService) AddLimits(defs ...domain.LimitDef) { s.defs = append(s.defs, defs...) }
+
+// AddUsageCounter registers how a module counts what a user has, for display.
+func (s *MembershipService) AddUsageCounter(fn func(ctx context.Context, userID int64, u domain.Usage) error) {
 	s.counters = append(s.counters, fn)
 }
 
@@ -61,13 +64,17 @@ func (s *MembershipService) Plan(ctx context.Context, userID int64) (domain.Plan
 	return e.Plan, e, nil
 }
 
-// Limits is what use cases call before creating something limited.
-func (s *MembershipService) Limits(ctx context.Context, userID int64) (domain.Limits, error) {
+// Limit is what modules call (through kit.PlanLimits) before creating
+// something limited. An unregistered key is unlimited.
+func (s *MembershipService) Limit(ctx context.Context, userID int64, key string) (int, error) {
 	p, _, err := s.Plan(ctx, userID)
 	if err != nil {
-		return domain.Limits{}, err
+		return 0, err
 	}
-	return domain.LimitsFor(p), nil
+	if v, ok := domain.LimitsFor(p, s.defs)[key]; ok {
+		return v, nil
+	}
+	return domain.Unlimited, nil
 }
 
 func (s *MembershipService) Get(ctx context.Context, userID int64) (*domain.Membership, error) {
@@ -77,18 +84,14 @@ func (s *MembershipService) Get(ctx context.Context, userID int64) (*domain.Memb
 	}
 	m := &domain.Membership{
 		Plan: plan, BillingEnabled: s.billing,
-		Limits: domain.LimitsFor(plan), FreeLimits: domain.LimitsFor(domain.PlanFree),
+		Limits: domain.LimitsFor(plan, s.defs), FreeLimits: domain.LimitsFor(domain.PlanFree, s.defs),
+		Usage: domain.Usage{}, Defs: append([]domain.LimitDef{}, s.defs...),
 	}
 	if ent != nil {
 		m.Source, m.EndsAt, m.Note = ent.Source, ent.EndsAt, ent.Note
 	}
-	ws, err := s.wallets.List(ctx, userID, false)
-	if err != nil {
-		return nil, err
-	}
-	m.Usage.Wallets = len(ws)
 	for _, count := range s.counters {
-		if err := count(ctx, userID, &m.Usage); err != nil {
+		if err := count(ctx, userID, m.Usage); err != nil {
 			return nil, err
 		}
 	}

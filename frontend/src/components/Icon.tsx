@@ -85,3 +85,8 @@ export function Logo({ size = 30 }: { size?: number }) {
     </svg>
   );
 }
+
+/** An icon name sent by the server, or the fallback when it is unknown. */
+export function iconOr(name: string, fallback: IconName = 'bell'): IconName {
+  return name in paths ? (name as IconName) : fallback;
+}

@@ -5,16 +5,17 @@ package app
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"net/http"
 	"sync"
 	"time"
 
 	deliveryhttp "receh/internal/delivery/http"
 	"receh/internal/domain"
+	"receh/internal/modules"
 	"receh/internal/platform/cache"
 	"receh/internal/platform/geoip"
 	"receh/internal/platform/keymutex"
-	"receh/internal/platform/pdf"
 	"receh/internal/repository/cached"
 	"receh/internal/repository/mysql"
 	"receh/internal/usecase"
@@ -31,109 +32,117 @@ type Params struct {
 	// Zero disables the cache.
 	SessionCacheTTL   time.Duration
 	DashboardCacheTTL time.Duration
+	// How often scheduled module jobs run; zero means one minute.
+	SweepEvery time.Duration
 	// Google sign-in provider; nil disables it.
 	Google domain.OAuthProvider
 	// BillingEnabled false = personal edition (everyone premium).
 	BillingEnabled bool
+	// AppName is the product name modules print (reports, messages).
+	AppName string
+	// Modules overrides the module list (nil = Modules()).
+	Modules []modules.Module
 }
 
 type App struct {
 	Handler       http.Handler
 	Admin         *usecase.AdminService
-	Recurring     *usecase.RecurringService
 	Auth          *usecase.AuthService
-	Txs           *usecase.TransactionService
+	Membership    *usecase.MembershipService
 	Notifications *usecase.NotificationService
+	modules       map[string]modules.Module
 	audit         *usecase.AuditRecorder
 	janitors      []func(context.Context)
 	wg            sync.WaitGroup
 }
 
-func New(p Params) *App {
+// Module returns a loaded module by name, or nil.
+func (a *App) Module(name string) modules.Module { return a.modules[name] }
+
+func New(p Params) (*App, error) {
+	mods := p.Modules
+	if mods == nil {
+		mods = Modules()
+	}
+	for _, m := range mods {
+		if err := m.Migrate(p.DB); err != nil {
+			return nil, fmt.Errorf("module %s: migrate: %w", m.Name(), err)
+		}
+	}
+	if p.AppName == "" {
+		p.AppName = "Receh"
+	}
+	if p.SweepEvery <= 0 {
+		p.SweepEvery = time.Minute
+	}
+
 	// Sessions and users are read on every authenticated request, so they sit
 	// behind a cache. Every service gets the cached wrappers, so the writes that
 	// invalidate (revoke, suspend, freeze) always pass through them.
 	users := cached.NewUserRepo(mysql.NewUserRepo(p.DB), p.SessionCacheTTL)
 	sessions := cached.NewSessionRepo(mysql.NewSessionRepo(p.DB), p.SessionCacheTTL)
-	wallets := mysql.NewWalletRepo(p.DB)
-	categories := mysql.NewCategoryRepo(p.DB)
-	txs := mysql.NewTransactionRepo(p.DB)
-	transfers := mysql.NewTransferRepo(p.DB)
-	recurring := mysql.NewRecurringRepo(p.DB)
 	auditRepo := mysql.NewAuditRepo(p.DB)
 
 	audit := usecase.NewAuditRecorder(auditRepo, sessions, geoip.New(p.GeoIPURL), 2)
-	// One lock table shared by every path that moves money.
-	locks := keymutex.New()
-	// Bumped by every write to a user's finances; the dashboard cache keys on it.
+	// Bumped by every write to a user's data; read caches key on it.
 	versions := cache.NewVersions()
-	// Every write tells all listeners: the version above and, once built, the
-	// notification worker.
+	// Every write tells all listeners: the version above and the notification worker.
 	changes := &usecase.ChangeNotifiers{versions}
+	hooks := &usecase.UserHooks{}
 
-	auth := usecase.NewAuthService(users, sessions, audit, p.BcryptCost)
+	auth := usecase.NewAuthService(users, sessions, audit, p.BcryptCost, hooks)
 	var janitors []func(context.Context)
 	if p.Google != nil {
 		auth.EnableGoogle(p.Google)
 		janitors = append(janitors, func(ctx context.Context) { auth.OAuthStates().RunJanitor(ctx, time.Minute) })
 	}
-
 	membership := usecase.NewMembershipService(p.BillingEnabled, mysql.NewEntitlementRepo(p.DB), mysql.NewPromoRepo(p.DB),
-		users, wallets, audit, p.Clock)
-
-	dashboard := usecase.NewDashboardService(txs, wallets, recurring, p.Clock, versions, p.DashboardCacheTTL)
-	budgets := usecase.NewBudgetService(mysql.NewBudgetRepo(p.DB), categories, txs, p.Clock, locks, membership, changes)
-	dashboard.WithBudgets(budgets)
-	membership.AddUsageCounter(budgets.Count)
-	goals := usecase.NewGoalService(mysql.NewGoalRepo(p.DB), wallets, p.Clock, locks, membership, changes)
-	dashboard.WithGoals(goals)
-	membership.AddUsageCounter(goals.Count)
-	notifications := usecase.NewNotificationService(mysql.NewNotificationRepo(p.DB), users, wallets, recurring, txs, budgets, goals, p.Clock)
+		users, audit, p.Clock)
+	notifications := usecase.NewNotificationService(mysql.NewNotificationRepo(p.DB), users, p.Clock)
 	*changes = append(*changes, notifications)
+
 	svc := deliveryhttp.Services{
 		Auth:          auth,
-		Wallets:       usecase.NewWalletService(wallets, recurring, locks, changes, membership),
-		Categories:    usecase.NewCategoryService(categories, changes),
-		Txs:           usecase.NewTransactionService(txs, wallets, categories, p.Clock, locks, changes),
-		Transfers:     usecase.NewTransferService(transfers, wallets, categories, p.Clock, locks, changes),
-		Recurring:     usecase.NewRecurringService(recurring, wallets, categories, p.Clock, locks, 4, changes),
-		Dashboard:     dashboard,
-		Reports:       usecase.NewReportService(txs, pdf.ReportRenderer{}, p.Clock),
-		Admin:         usecase.NewAdminService(users, sessions, auditRepo, audit, p.BcryptCost),
+		Admin:         usecase.NewAdminService(users, sessions, auditRepo, audit, p.BcryptCost, hooks),
 		Membership:    membership,
-		Budgets:       budgets,
-		Goals:         goals,
 		Notifications: notifications,
-		Entries:       usecase.NewEntryService(mysql.NewEntryRepo(p.DB), wallets, categories, p.Clock, locks, membership, changes),
 	}
 	server := deliveryhttp.NewServer(svc, deliveryhttp.Options{
 		CookieSecure: p.CookieSecure, TrustProxy: p.TrustProxy, StaticDir: p.StaticDir,
 	})
+
+	host := &modules.Host{
+		DB: p.DB, Clock: p.Clock, Locks: keymutex.New(), Changes: changes, Versions: versions,
+		Plans: membership, Membership: membership, Notifications: notifications, Users: hooks, Server: server,
+		CacheTTL: p.DashboardCacheTTL, SweepEvery: p.SweepEvery, AppName: p.AppName,
+	}
+	byName := map[string]modules.Module{}
+	for _, m := range mods {
+		if _, dup := byName[m.Name()]; dup {
+			return nil, fmt.Errorf("module %s registered twice", m.Name())
+		}
+		if err := m.Init(host); err != nil {
+			return nil, fmt.Errorf("module %s: init: %w", m.Name(), err)
+		}
+		byName[m.Name()] = m
+	}
+
 	return &App{
-		Handler: server.Handler(), Admin: svc.Admin, Recurring: svc.Recurring,
-		Auth: svc.Auth, Txs: svc.Txs, audit: audit,
-		Notifications: notifications,
-		janitors: append(janitors,
+		Handler: server.Handler(), Admin: svc.Admin, Auth: auth, Membership: membership,
+		Notifications: notifications, modules: byName, audit: audit,
+		janitors: append(append(janitors,
 			func(ctx context.Context) { users.Cache().RunJanitor(ctx, time.Minute) },
 			func(ctx context.Context) { sessions.Cache().RunJanitor(ctx, time.Minute) },
-			func(ctx context.Context) { dashboard.Cache().RunJanitor(ctx, time.Minute) },
+			auth.Maintain,
 			notifications.RunWorker,
 			func(ctx context.Context) { notifications.RunScheduler(ctx, 10*time.Minute) },
-		),
-	}
+		), host.Jobs()...),
+	}, nil
 }
 
 // StartBackground launches the long-running goroutines. They end when ctx does.
-func (a *App) StartBackground(ctx context.Context, sweepEvery time.Duration) {
-	a.wg.Add(2 + len(a.janitors))
-	go func() {
-		defer a.wg.Done()
-		a.Recurring.RunScheduler(ctx, sweepEvery)
-	}()
-	go func() {
-		defer a.wg.Done()
-		a.Auth.Maintain(ctx)
-	}()
+func (a *App) StartBackground(ctx context.Context) {
+	a.wg.Add(len(a.janitors))
 	for _, run := range a.janitors {
 		go func() {
 			defer a.wg.Done()

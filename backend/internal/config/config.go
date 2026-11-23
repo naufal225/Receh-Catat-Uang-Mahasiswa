@@ -14,6 +14,8 @@ import (
 )
 
 type Config struct {
+	// AppName is the product name in reports, logs and (later) emails.
+	AppName       string
 	Addr          string
 	DBDSN         string
 	DBMaxOpen     int
@@ -89,6 +91,7 @@ func Load() (*Config, error) {
 		AdminPassword:      os.Getenv("ADMIN_PASSWORD"),
 		SweepEvery:         sweep,
 		BillingEnabled:     envBool("BILLING_ENABLED", defaultBillingEnabled),
+		AppName:            env("APP_NAME", "Receh"),
 		GoogleClientID:     googleID,
 		GoogleClientSecret: googleSecret,
 		GoogleRedirectURL:  googleRedirect,

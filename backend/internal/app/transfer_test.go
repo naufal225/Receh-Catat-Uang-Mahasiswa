@@ -8,17 +8,18 @@ import (
 	"testing"
 
 	"receh/internal/domain"
+	"receh/internal/modules/finance/model"
 )
 
 func transferBody(from, to, amount, fee int64, on string) M {
 	return M{"fromWalletId": from, "toWalletId": to, "amount": amount, "fee": fee, "note": "Top up", "occurredOn": on}
 }
 
-func dashboard(c *client) domain.Dashboard {
-	return must[domain.Dashboard](c, 200, "GET", "/api/dashboard?unit=month&offset=0", nil)
+func dashboard(c *client) model.Dashboard {
+	return must[model.Dashboard](c, 200, "GET", "/api/dashboard?unit=month&offset=0", nil)
 }
 
-func sliceTotal(slices []domain.CategorySlice, name string) int64 {
+func sliceTotal(slices []model.CategorySlice, name string) int64 {
 	for _, s := range slices {
 		if s.Name == name {
 			return s.Total
@@ -34,7 +35,7 @@ func TestTransferMovesMoneyAndBooksFeeAsExpense(t *testing.T) {
 	gopay := c.wallet("GoPay", 0)
 	before := dashboard(c)
 
-	tr := must[domain.Transfer](c, 201, "POST", "/api/transfers", transferBody(bca.ID, gopay.ID, 100_000, 1_000, "2026-01-15"))
+	tr := must[model.Transfer](c, 201, "POST", "/api/transfers", transferBody(bca.ID, gopay.ID, 100_000, 1_000, "2026-01-15"))
 	if tr.FromWalletName != "BCA" || tr.ToWalletName != "GoPay" || tr.Fee != 1_000 {
 		t.Fatalf("transfer = %+v", tr)
 	}
@@ -56,16 +57,16 @@ func TestTransferMovesMoneyAndBooksFeeAsExpense(t *testing.T) {
 	}
 
 	// Across all wallets the transfer is one row, plus its fee expense.
-	all := must[domain.Page[domain.Transaction]](c, 200, "GET", "/api/transactions", nil)
+	all := must[domain.Page[model.Transaction]](c, 200, "GET", "/api/transactions", nil)
 	if all.Total != 2 {
 		t.Fatalf("history has %d rows, want transfer + fee", all.Total)
 	}
-	var leg, fee *domain.Transaction
+	var leg, fee *model.Transaction
 	for i := range all.Items {
 		switch all.Items[i].Type {
-		case domain.TxTransferOut:
+		case model.TxTransferOut:
 			leg = &all.Items[i]
-		case domain.TxExpense:
+		case model.TxExpense:
 			fee = &all.Items[i]
 		}
 	}
@@ -76,11 +77,11 @@ func TestTransferMovesMoneyAndBooksFeeAsExpense(t *testing.T) {
 		t.Fatalf("fee row = %+v", fee)
 	}
 	// Filtered to the destination, its incoming leg explains its balance.
-	in := must[domain.Page[domain.Transaction]](c, 200, "GET", fmt.Sprintf("/api/transactions?walletId=%d", gopay.ID), nil)
-	if in.Total != 1 || in.Items[0].Type != domain.TxTransferIn || in.Items[0].CounterpartName != "BCA" {
+	in := must[domain.Page[model.Transaction]](c, 200, "GET", fmt.Sprintf("/api/transactions?walletId=%d", gopay.ID), nil)
+	if in.Total != 1 || in.Items[0].Type != model.TxTransferIn || in.Items[0].CounterpartName != "BCA" {
 		t.Fatalf("GoPay history = %+v", in.Items)
 	}
-	only := must[domain.Page[domain.Transaction]](c, 200, "GET", "/api/transactions?type=transfer", nil)
+	only := must[domain.Page[model.Transaction]](c, 200, "GET", "/api/transactions?type=transfer", nil)
 	if only.Total != 1 {
 		t.Fatalf("transfer filter = %d rows", only.Total)
 	}
@@ -90,7 +91,7 @@ func TestTransferMovesMoneyAndBooksFeeAsExpense(t *testing.T) {
 	c.expect(409, "DELETE", fmt.Sprintf("/api/transactions/%d", leg.ID), nil)
 
 	// The monthly report lists it and keeps it out of income and expense.
-	rep := must[domain.MonthlyReport](c, 200, "GET", "/api/reports/monthly?month=2026-01", nil)
+	rep := must[model.MonthlyReport](c, 200, "GET", "/api/reports/monthly?month=2026-01", nil)
 	if rep.Totals.Expense != 1_000 || rep.Totals.Income != 0 {
 		t.Fatalf("report totals %+v", rep.Totals)
 	}
@@ -107,7 +108,7 @@ func TestTransferWithoutFeeAndValidation(t *testing.T) {
 	if x, y := c.balance(a.ID), c.balance(b.ID); x != 30_000 || y != 20_000 {
 		t.Fatalf("balances %d %d", x, y)
 	}
-	all := must[domain.Page[domain.Transaction]](c, 200, "GET", "/api/transactions", nil)
+	all := must[domain.Page[model.Transaction]](c, 200, "GET", "/api/transactions", nil)
 	if all.Total != 1 {
 		t.Fatalf("a free transfer adds no fee row, got %d rows", all.Total)
 	}
@@ -152,9 +153,9 @@ func TestTransferEditAndDeleteReverseExactly(t *testing.T) {
 	gopay := c.wallet("GoPay", 0)
 	dana := c.wallet("DANA", 0)
 
-	tr := must[domain.Transfer](c, 201, "POST", "/api/transfers", transferBody(bca.ID, gopay.ID, 100_000, 1_000, "2026-01-15"))
+	tr := must[model.Transfer](c, 201, "POST", "/api/transfers", transferBody(bca.ID, gopay.ID, 100_000, 1_000, "2026-01-15"))
 	// Change destination, amount and fee in one edit.
-	upd := must[domain.Transfer](c, 200, "PUT", fmt.Sprintf("/api/transfers/%d", tr.ID), transferBody(bca.ID, dana.ID, 50_000, 2_500, "2026-01-14"))
+	upd := must[model.Transfer](c, 200, "PUT", fmt.Sprintf("/api/transfers/%d", tr.ID), transferBody(bca.ID, dana.ID, 50_000, 2_500, "2026-01-14"))
 	if upd.ToWalletName != "DANA" || upd.Fee != 2_500 || upd.OccurredOn != "2026-01-14" {
 		t.Fatalf("updated = %+v", upd)
 	}
@@ -166,13 +167,13 @@ func TestTransferEditAndDeleteReverseExactly(t *testing.T) {
 	}
 	// Removing the fee removes its expense row.
 	c.expect(200, "PUT", fmt.Sprintf("/api/transfers/%d", tr.ID), transferBody(bca.ID, dana.ID, 50_000, 0, "2026-01-14"))
-	if all := must[domain.Page[domain.Transaction]](c, 200, "GET", "/api/transactions", nil); all.Total != 1 {
+	if all := must[domain.Page[model.Transaction]](c, 200, "GET", "/api/transactions", nil); all.Total != 1 {
 		t.Fatalf("rows after dropping fee: %d", all.Total)
 	}
 
 	// Money already spent at the destination cannot be pulled back.
-	makan := c.category(domain.TxExpense, "Makan")
-	spent := must[domain.Transaction](c, 201, "POST", "/api/transactions", txBody(dana.ID, makan, "expense", 40_000, "2026-01-15"))
+	makan := c.category(model.TxExpense, "Makan")
+	spent := must[model.Transaction](c, 201, "POST", "/api/transactions", txBody(dana.ID, makan, "expense", 40_000, "2026-01-15"))
 	c.expect(409, "DELETE", fmt.Sprintf("/api/transfers/%d", tr.ID), nil)
 	c.expect(409, "PUT", fmt.Sprintf("/api/transfers/%d", tr.ID), transferBody(bca.ID, dana.ID, 20_000, 0, "2026-01-14"))
 	c.expect(204, "DELETE", fmt.Sprintf("/api/transactions/%d", spent.ID), nil)
@@ -181,7 +182,7 @@ func TestTransferEditAndDeleteReverseExactly(t *testing.T) {
 	if a, d := c.balance(bca.ID), c.balance(dana.ID); a != 200_000 || d != 0 {
 		t.Fatalf("after delete %d %d", a, d)
 	}
-	if all := must[domain.Page[domain.Transaction]](c, 200, "GET", "/api/transactions", nil); all.Total != 0 {
+	if all := must[domain.Page[model.Transaction]](c, 200, "GET", "/api/transactions", nil); all.Total != 0 {
 		t.Fatalf("rows left after delete: %d", all.Total)
 	}
 	c.expect(404, "GET", fmt.Sprintf("/api/transfers/%d", tr.ID), nil)
@@ -294,7 +295,7 @@ func TestFrozenAccountCannotTransfer(t *testing.T) {
 	c := e.newUser("")
 	a := c.wallet("A", 10_000)
 	b := c.wallet("B", 0)
-	tr := must[domain.Transfer](c, 201, "POST", "/api/transfers", transferBody(a.ID, b.ID, 1_000, 0, "2026-01-15"))
+	tr := must[model.Transfer](c, 201, "POST", "/api/transfers", transferBody(a.ID, b.ID, 1_000, 0, "2026-01-15"))
 	me := must[domain.User](c, 200, "GET", "/api/auth/me", nil)
 	admin.expect(200, "POST", fmt.Sprintf("/api/admin/users/%d/status", me.ID), M{"status": "frozen", "reason": "Cek"})
 
@@ -311,10 +312,10 @@ func TestFeeCategoryIsCreatedWhenMissing(t *testing.T) {
 	c := e.newUser("")
 	a := c.wallet("A", 10_000)
 	b := c.wallet("B", 0)
-	c.expect(204, "DELETE", fmt.Sprintf("/api/categories/%d", c.category(domain.TxExpense, "Biaya admin")), nil)
+	c.expect(204, "DELETE", fmt.Sprintf("/api/categories/%d", c.category(model.TxExpense, "Biaya admin")), nil)
 
 	c.expect(201, "POST", "/api/transfers", transferBody(a.ID, b.ID, 1_000, 500, "2026-01-15"))
-	c.category(domain.TxExpense, "Biaya admin") // Fails the test if absent.
+	c.category(model.TxExpense, "Biaya admin") // Fails the test if absent.
 }
 
 // The dashboard is cached, but never past a change: each write bumps the
@@ -323,13 +324,13 @@ func TestDashboardCacheNeverServesStaleData(t *testing.T) {
 	e := newEnv(t)
 	c := e.newUser("")
 	w := c.wallet("BCA", 100_000)
-	makan := c.category(domain.TxExpense, "Makan")
+	makan := c.category(model.TxExpense, "Makan")
 
 	if d := dashboard(c); d.Totals.Expense != 0 || d.TotalBalance != 100_000 {
 		t.Fatalf("start %+v", d.Totals)
 	}
 	dashboard(c) // Second read is served from cache.
-	tx := must[domain.Transaction](c, 201, "POST", "/api/transactions", txBody(w.ID, makan, "expense", 25_000, "2026-01-15"))
+	tx := must[model.Transaction](c, 201, "POST", "/api/transactions", txBody(w.ID, makan, "expense", 25_000, "2026-01-15"))
 	if d := dashboard(c); d.Totals.Expense != 25_000 || d.TotalBalance != 75_000 || len(d.Latest) != 1 {
 		t.Fatalf("after expense: totals %+v balance %d latest %d", d.Totals, d.TotalBalance, len(d.Latest))
 	}
@@ -349,7 +350,7 @@ func TestDashboardCacheNeverServesStaleData(t *testing.T) {
 	})
 	dashboard(c)
 	e.clock.set("2026-01-16")
-	if _, err := e.app.Recurring.RunDue(t.Context()); err != nil {
+	if _, err := e.recurring().RunDue(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	if d := dashboard(c); d.TotalBalance != 90_000 {

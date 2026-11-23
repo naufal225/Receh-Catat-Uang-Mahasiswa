@@ -150,7 +150,7 @@ func (d *Doc) Bytes() ([]byte, error) {
 	obj(fmt.Sprintf("<< /Type /Pages /Kids [%s] /Count %d >>", strings.Join(kids, " "), len(d.pages)))
 	obj("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>")
 	obj("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>")
-	obj(fmt.Sprintf("<< /Title <%s> /Producer (Receh) >>", hexWinAnsi(d.title)))
+	obj(fmt.Sprintf("<< /Title <%s> /Producer (Go PDF) >>", hexWinAnsi(d.title)))
 
 	for i, page := range d.pages {
 		obj(fmt.Sprintf("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 %.2f %.2f] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents %d 0 R >>",

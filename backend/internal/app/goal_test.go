@@ -2,33 +2,32 @@ package app_test
 
 import (
 	"fmt"
+	"receh/internal/modules/finance/model"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
-
-	"receh/internal/domain"
 )
 
-func goals(c *client) []domain.GoalProgress {
-	return must[[]domain.GoalProgress](c, 200, "GET", "/api/goals", nil)
+func goals(c *client) []model.GoalProgress {
+	return must[[]model.GoalProgress](c, 200, "GET", "/api/goals", nil)
 }
 
 func TestManualGoalDepositsWithdrawalsAndPace(t *testing.T) { // today is 2026-01-15
 	e := newEnv(t)
 	c := e.newUser("")
 	c.expect(400, "POST", "/api/goals", M{"name": "Laptop", "targetAmount": 8_000_000, "deadline": "2026-01-14"})
-	g := must[domain.GoalProgress](c, 201, "POST", "/api/goals", M{"name": "Laptop", "targetAmount": 8_000_000, "deadline": "2026-07-14"})
+	g := must[model.GoalProgress](c, 201, "POST", "/api/goals", M{"name": "Laptop", "targetAmount": 8_000_000, "deadline": "2026-07-14"})
 	if !g.ManualSaving || g.Saved != 0 || g.DaysLeft == nil || *g.DaysLeft != 181 {
 		t.Fatalf("new goal %+v", g)
 	}
 	path := fmt.Sprintf("/api/goals/%d/contributions", g.ID)
-	g = must[domain.GoalProgress](c, 201, "POST", path, M{"amount": 2_000_000, "note": "Gaji part-time"})
+	g = must[model.GoalProgress](c, 201, "POST", path, M{"amount": 2_000_000, "note": "Gaji part-time"})
 	// 6.000.000 left over 181 days = 26 weeks → 230.770/week (rounded up), 7 months → 857.143/month.
 	if g.Saved != 2_000_000 || g.Percent != 25 || g.Remaining != 6_000_000 || g.PerWeek != 230_770 || g.PerMonth != 857_143 {
 		t.Fatalf("after deposit %+v", g)
 	}
-	g = must[domain.GoalProgress](c, 201, "POST", path, M{"amount": -500_000, "note": "Darurat"})
+	g = must[model.GoalProgress](c, 201, "POST", path, M{"amount": -500_000, "note": "Darurat"})
 	if g.Saved != 1_500_000 {
 		t.Fatalf("after withdrawal %+v", g)
 	}
@@ -38,7 +37,7 @@ func TestManualGoalDepositsWithdrawalsAndPace(t *testing.T) { // today is 2026-0
 	}
 	c.expect(400, "POST", path, M{"amount": 0})
 
-	list := must[[]domain.GoalContribution](c, 200, "GET", path, nil)
+	list := must[[]model.GoalContribution](c, 200, "GET", path, nil)
 	if len(list) != 2 {
 		t.Fatalf("contributions %+v", list)
 	}
@@ -65,7 +64,7 @@ func TestManualGoalDepositsWithdrawalsAndPace(t *testing.T) { // today is 2026-0
 	}
 
 	// Past the deadline without reaching it is "overdue".
-	g2 := must[domain.GoalProgress](c, 201, "POST", "/api/goals", M{"name": "Motor", "targetAmount": 1_000_000, "deadline": "2026-01-20"})
+	g2 := must[model.GoalProgress](c, 201, "POST", "/api/goals", M{"name": "Motor", "targetAmount": 1_000_000, "deadline": "2026-01-20"})
 	e.clock.set("2026-01-25")
 	for _, x := range goals(c) {
 		if x.ID == g2.ID && (!x.Overdue || x.PerWeek != 0) {
@@ -85,7 +84,7 @@ func TestManualGoalDepositsWithdrawalsAndPace(t *testing.T) { // today is 2026-0
 func TestConcurrentGoalWithdrawalsNeverGoNegative(t *testing.T) {
 	e := newEnv(t)
 	c := e.newUser("")
-	g := must[domain.GoalProgress](c, 201, "POST", "/api/goals", M{"name": "Dana darurat", "targetAmount": 1_000_000})
+	g := must[model.GoalProgress](c, 201, "POST", "/api/goals", M{"name": "Dana darurat", "targetAmount": 1_000_000})
 	path := fmt.Sprintf("/api/goals/%d/contributions", g.ID)
 	c.expect(201, "POST", path, M{"amount": 100_000})
 
@@ -114,7 +113,7 @@ func TestWalletGoalFollowsBalance(t *testing.T) {
 	c := e.newUser("")
 	bca := c.wallet("BCA", 3_000_000)
 	tabungan := c.wallet("Tabungan Laptop", 500_000)
-	g := must[domain.GoalProgress](c, 201, "POST", "/api/goals", M{"name": "Laptop", "targetAmount": 2_000_000, "walletId": tabungan.ID})
+	g := must[model.GoalProgress](c, 201, "POST", "/api/goals", M{"name": "Laptop", "targetAmount": 2_000_000, "walletId": tabungan.ID})
 	if g.ManualSaving || g.Saved != 500_000 || g.WalletName != "Tabungan Laptop" {
 		t.Fatalf("wallet goal %+v", g)
 	}
@@ -127,10 +126,10 @@ func TestWalletGoalFollowsBalance(t *testing.T) {
 	c.expect(400, "POST", fmt.Sprintf("/api/goals/%d/contributions", g.ID), M{"amount": 1})
 
 	// A manual goal with deposits cannot silently switch to a wallet.
-	m := must[domain.GoalProgress](c, 201, "POST", "/api/goals", M{"name": "Liburan", "targetAmount": 1_000_000})
+	m := must[model.GoalProgress](c, 201, "POST", "/api/goals", M{"name": "Liburan", "targetAmount": 1_000_000})
 	c.expect(201, "POST", fmt.Sprintf("/api/goals/%d/contributions", m.ID), M{"amount": 50_000})
 	c.expect(400, "PUT", fmt.Sprintf("/api/goals/%d", m.ID), M{"name": "Liburan", "targetAmount": 1_000_000, "walletId": tabungan.ID})
-	upd := must[domain.GoalProgress](c, 200, "PUT", fmt.Sprintf("/api/goals/%d", m.ID), M{"name": "Liburan Bali", "targetAmount": 2_000_000, "color": "c5"})
+	upd := must[model.GoalProgress](c, 200, "PUT", fmt.Sprintf("/api/goals/%d", m.ID), M{"name": "Liburan Bali", "targetAmount": 2_000_000, "color": "c5"})
 	if upd.Name != "Liburan Bali" || upd.Saved != 50_000 || upd.Color != "c5" {
 		t.Fatalf("updated %+v", upd)
 	}
@@ -142,7 +141,7 @@ func TestWalletGoalFollowsBalance(t *testing.T) {
 func TestGoalLimitOnFreePlanAndArchiving(t *testing.T) {
 	e := newB2CEnv(t)
 	c := e.newUser("")
-	first := must[domain.GoalProgress](c, 201, "POST", "/api/goals", M{"name": "Laptop", "targetAmount": 1_000_000})
+	first := must[model.GoalProgress](c, 201, "POST", "/api/goals", M{"name": "Laptop", "targetAmount": 1_000_000})
 	body := c.expect(403, "POST", "/api/goals", M{"name": "Motor", "targetAmount": 1_000_000})
 	if !strings.Contains(body, "PLAN_LIMIT") {
 		t.Fatalf("2nd goal on free plan: %s", body)
@@ -151,10 +150,10 @@ func TestGoalLimitOnFreePlanAndArchiving(t *testing.T) {
 	c.expect(200, "POST", fmt.Sprintf("/api/goals/%d/archive", first.ID), M{"archived": true})
 	c.expect(201, "POST", "/api/goals", M{"name": "Motor", "targetAmount": 1_000_000})
 	c.expect(403, "POST", fmt.Sprintf("/api/goals/%d/archive", first.ID), M{"archived": false})
-	if n := len(must[[]domain.GoalProgress](c, 200, "GET", "/api/goals?archived=1", nil)); n != 2 {
+	if n := len(must[[]model.GoalProgress](c, 200, "GET", "/api/goals?archived=1", nil)); n != 2 {
 		t.Fatalf("with archived: %d", n)
 	}
-	if u := membershipOf(c).Usage; u.Goals != 1 {
+	if u := membershipOf(c).Usage; u["finance.goals"] != 1 {
 		t.Fatalf("usage %+v", u)
 	}
 }

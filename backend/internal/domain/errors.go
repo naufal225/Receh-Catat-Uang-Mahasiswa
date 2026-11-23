@@ -45,9 +45,8 @@ var (
 	ErrUnauthenticated = newErr(KindUnauthorized, "UNAUTHENTICATED", "Sesi Anda sudah berakhir. Silakan masuk lagi.")
 	ErrBadCredentials  = newErr(KindUnauthorized, "BAD_CREDENTIALS", "Email atau kata sandi salah.")
 	ErrAdminOnly       = newErr(KindForbidden, "ADMIN_ONLY", "Halaman ini khusus admin.")
-	ErrUserOnly        = newErr(KindForbidden, "USER_ONLY", "Fitur keuangan hanya untuk akun pengguna.")
+	ErrUserOnly        = newErr(KindForbidden, "USER_ONLY", "Fitur ini hanya untuk akun pengguna.")
 	ErrAccountFrozen   = newErr(KindForbidden, "ACCOUNT_FROZEN", "Akun Anda sedang dibekukan. Data bisa dilihat, tetapi tidak bisa diubah.")
-	ErrInsufficient    = newErr(KindConflict, "INSUFFICIENT_BALANCE", "Saldo dompet tidak cukup untuk transaksi ini.")
 	// Google sign-in. Codes are passed to the sign-in page, which explains them.
 	ErrOAuthDisabled   = newErr(KindNotFound, "OAUTH_DISABLED", "Masuk dengan Google belum diaktifkan di server ini.")
 	ErrOAuthFailed     = newErr(KindUnauthorized, "OAUTH_FAILED", "Masuk dengan Google gagal. Coba lagi.")

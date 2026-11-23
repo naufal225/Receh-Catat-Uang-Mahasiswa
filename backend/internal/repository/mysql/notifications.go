@@ -3,6 +3,8 @@ package mysql
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
+	"sort"
 	"strings"
 	"time"
 
@@ -89,13 +91,14 @@ func (r *NotificationRepo) DeleteBefore(ctx context.Context, t time.Time) (int64
 	return res.RowsAffected()
 }
 
+// Prefs reads the user's choices. Module settings are a JSON object so modules
+// can add settings without schema changes.
 func (r *NotificationRepo) Prefs(ctx context.Context, userID int64) (domain.NotificationPrefs, error) {
-	p := domain.NotificationPrefs{Disabled: map[domain.NotificationKind]bool{},
-		LowBalanceThreshold: domain.DefaultLowBalance, ReminderHour: domain.DefaultReminderHour}
+	p := domain.NotificationPrefs{Disabled: map[domain.NotificationKind]bool{}, Settings: map[string]int64{}}
 	var disabled string
+	var settings sql.NullString
 	err := r.db.QueryRowContext(ctx,
-		`SELECT disabled_kinds, low_balance_threshold, reminder_hour FROM notification_prefs WHERE user_id = ?`, userID).
-		Scan(&disabled, &p.LowBalanceThreshold, &p.ReminderHour)
+		`SELECT disabled_kinds, settings FROM notification_prefs WHERE user_id = ?`, userID).Scan(&disabled, &settings)
 	if err == sql.ErrNoRows {
 		return p, nil // Defaults: everything on.
 	}
@@ -107,20 +110,27 @@ func (r *NotificationRepo) Prefs(ctx context.Context, userID int64) (domain.Noti
 			p.Disabled[domain.NotificationKind(k)] = true
 		}
 	}
+	if settings.Valid && settings.String != "" {
+		_ = json.Unmarshal([]byte(settings.String), &p.Settings) // a corrupt value falls back to defaults
+	}
 	return p, nil
 }
 
 func (r *NotificationRepo) SavePrefs(ctx context.Context, userID int64, p domain.NotificationPrefs) error {
 	var off []string
-	for _, k := range domain.AllNotificationKinds {
-		if p.Disabled[k] {
+	for k, v := range p.Disabled {
+		if v {
 			off = append(off, string(k))
 		}
 	}
-	_, err := r.db.ExecContext(ctx, `
-		INSERT INTO notification_prefs (user_id, disabled_kinds, low_balance_threshold, reminder_hour) VALUES (?, ?, ?, ?)
-		ON DUPLICATE KEY UPDATE disabled_kinds = VALUES(disabled_kinds),
-		    low_balance_threshold = VALUES(low_balance_threshold), reminder_hour = VALUES(reminder_hour)`,
-		userID, strings.Join(off, ","), p.LowBalanceThreshold, p.ReminderHour)
+	sort.Strings(off)
+	settings, err := json.Marshal(p.Settings)
+	if err != nil {
+		return err
+	}
+	_, err = r.db.ExecContext(ctx, `
+		INSERT INTO notification_prefs (user_id, disabled_kinds, settings) VALUES (?, ?, ?)
+		ON DUPLICATE KEY UPDATE disabled_kinds = VALUES(disabled_kinds), settings = VALUES(settings)`,
+		userID, strings.Join(off, ","), string(settings))
 	return err
 }

@@ -4,9 +4,10 @@ import { useState, type FormEvent } from 'react';
 import { Icon } from '../components/Icon';
 import { Field, Skeleton, useToast } from '../components/ui';
 import { api, ApiError } from '../lib/api';
-import { useFinance } from '../lib/finance';
+import { brand, pick } from '../brand';
+import { useApp } from '../lib/app';
 import { formatDateTime } from '../lib/format';
-import type { Limits, Membership } from '../lib/types';
+import type { LimitDef, Membership } from '../lib/types';
 
 const limitText = (n: number) => (n === -1 ? 'Tanpa batas' : String(n));
 
@@ -29,24 +30,16 @@ export function sourceLabel(m: Pick<Membership, 'source' | 'note'>): string {
   }
 }
 
-const rows: { label: string; key: keyof Limits; usage?: 'wallets' | 'budgets' | 'goals' }[] = [
-  { label: 'Dompet aktif', key: 'maxWallets', usage: 'wallets' },
-  { label: 'Anggaran per kategori', key: 'maxBudgets', usage: 'budgets' },
-  { label: 'Target tabungan', key: 'maxGoals', usage: 'goals' },
-  { label: 'Impor mutasi bank (CSV)', key: 'csvImport' },
-];
-
-function cell(v: number | boolean) {
-  if (typeof v === 'boolean') {
-    return v ? <span className="income-text"><Icon name="check" size={18} /><span className="sr-only">Ya</span></span> : <span className="muted">—</span>;
+function cell(d: LimitDef, v: number) {
+  if (d.feature) {
+    return v !== 0 ? <span className="income-text"><Icon name="check" size={18} /><span className="sr-only">Ya</span></span> : <span className="muted">—</span>;
   }
   return limitText(v);
 }
 
 export default function Subscription() {
-  const { membership: m, changed } = useFinance();
+  const { membership: m, changed } = useApp();
   if (!m) return <Skeleton h={200} />;
-  const premiumLimits: Limits = { maxWallets: -1, maxBudgets: -1, maxGoals: -1, csvImport: true };
   const premium = m.plan === 'premium';
 
   return (
@@ -54,7 +47,7 @@ export default function Subscription() {
       <div className="page-head">
         <div>
           <h1>Langganan</h1>
-          <p>{m.billingEnabled ? 'Paket yang kamu pakai dan apa saja isinya.' : 'Edisi pribadi Receh.'}</p>
+          <p>{m.billingEnabled ? 'Paket yang kamu pakai dan apa saja isinya.' : `Edisi pribadi ${brand.name}.`}</p>
         </div>
       </div>
 
@@ -70,8 +63,8 @@ export default function Subscription() {
           {!m.billingEnabled
             ? 'Edisi pribadi tidak menjual apa pun: setiap akun otomatis mendapat semua fitur tanpa batas.'
             : premium
-              ? sourceLabel(m) || 'Terima kasih sudah mendukung Receh.'
-              : 'Semua fitur dasar tetap gratis. Premium membuka batas dompet, anggaran, target, dan impor mutasi.'}
+              ? sourceLabel(m) || `Terima kasih sudah mendukung ${brand.name}.`
+              : 'Semua fitur dasar tetap gratis. Premium membuka batas yang tertera di tabel.'}
         </p>
       </div>
 
@@ -82,16 +75,16 @@ export default function Subscription() {
               <tr><th>Fitur</th>{m.billingEnabled && <th>Gratis</th>}<th>Premium</th></tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
-                <tr key={r.key}>
+              {m.defs.map((d) => (
+                <tr key={d.key}>
                   <td>
-                    {r.label}
-                    {r.usage && m.billingEnabled && !premium && (
-                      <span className="sub">Terpakai {m.usage[r.usage]} dari {limitText(m.freeLimits[r.key] as number)}</span>
+                    {pick(d.label)}
+                    {!d.feature && m.usage[d.key] !== undefined && m.billingEnabled && !premium && (
+                      <span className="sub">Terpakai {m.usage[d.key]} dari {limitText(d.free)}</span>
                     )}
                   </td>
-                  {m.billingEnabled && <td>{cell(m.freeLimits[r.key])}</td>}
-                  <td>{cell(premiumLimits[r.key])}</td>
+                  {m.billingEnabled && <td>{cell(d, d.free)}</td>}
+                  <td>{cell(d, d.premium)}</td>
                 </tr>
               ))}
             </tbody>
@@ -113,7 +106,7 @@ export default function Subscription() {
 
 function RedeemForm({ onDone }: { onDone: () => void }) {
   const toast = useToast();
-  const { readOnly } = useFinance();
+  const { readOnly } = useApp();
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
