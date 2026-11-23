@@ -36,7 +36,7 @@ const MaxImportRows = 1000
 // Parse reads a one-line entry and completes it from history: if "Nasi padang"
 // was recorded before, its category and wallet are reused when the text
 // itself does not say.
-func (s *EntryService) Parse(ctx context.Context, userID int64, text string) (*model.QuickDraft, error) {
+func (s *EntryService) Parse(ctx context.Context, orgID int64, text string) (*model.QuickDraft, error) {
 	if strings.TrimSpace(text) == "" {
 		return nil, domain.Invalid("text", "Ketik dulu, misalnya \"makan siang 25rb gopay\".")
 	}
@@ -46,8 +46,8 @@ func (s *EntryService) Parse(ctx context.Context, userID int64, text string) (*m
 	var wallets []model.Wallet
 	var cats []model.Category
 	err := parallel(
-		func() (e error) { wallets, e = s.wallets.List(ctx, userID, false); return },
-		func() (e error) { cats, e = s.categories.List(ctx, userID); return },
+		func() (e error) { wallets, e = s.wallets.List(ctx, orgID, false); return },
+		func() (e error) { cats, e = s.categories.List(ctx, orgID); return },
 	)
 	if err != nil {
 		return nil, err
@@ -55,7 +55,7 @@ func (s *EntryService) Parse(ctx context.Context, userID int64, text string) (*m
 	today, _ := domain.ParseDate(s.clock.Today())
 	d := model.ParseQuick(text, wallets, cats, today)
 	if d.Name != "" && (d.CategoryID == 0 || d.WalletID == 0) {
-		past, err := s.entries.Suggest(ctx, userID, d.Name, true, 1)
+		past, err := s.entries.Suggest(ctx, orgID, d.Name, true, 1)
 		if err != nil {
 			return nil, err
 		}
@@ -80,12 +80,12 @@ func walletActive(ws []model.Wallet, id int64) bool {
 	return false
 }
 
-func (s *EntryService) Suggest(ctx context.Context, userID int64, prefix string) ([]model.TxSuggestion, error) {
+func (s *EntryService) Suggest(ctx context.Context, orgID int64, prefix string) ([]model.TxSuggestion, error) {
 	prefix = strings.TrimSpace(prefix)
 	if utf8.RuneCountInString(prefix) < 2 {
 		return []model.TxSuggestion{}, nil
 	}
-	return s.entries.Suggest(ctx, userID, prefix, false, 6)
+	return s.entries.Suggest(ctx, orgID, prefix, false, 6)
 }
 
 // ---- Statement import -----------------------------------------------------------
@@ -107,12 +107,12 @@ type ImportPreview struct {
 	Rows    []ImportRow            `json:"rows"`
 }
 
-func (s *EntryService) requireImport(ctx context.Context, userID int64) error {
-	return kit.RequireFeature(ctx, s.plans, userID, LimitCSVImport, "Impor mutasi CSV adalah fitur Premium.")
+func (s *EntryService) requireImport(ctx context.Context, orgID int64) error {
+	return kit.RequireFeature(ctx, s.plans, orgID, LimitCSVImport, "Impor mutasi CSV adalah fitur Premium.")
 }
 
-func (s *EntryService) importWallet(ctx context.Context, userID, walletID int64) (*model.Wallet, error) {
-	w, err := s.wallets.ByID(ctx, userID, walletID)
+func (s *EntryService) importWallet(ctx context.Context, orgID, walletID int64) (*model.Wallet, error) {
+	w, err := s.wallets.ByID(ctx, orgID, walletID)
 	if errors.Is(err, domain.ErrNoRows) {
 		return nil, domain.Invalid("walletId", "Pilih dompet tujuan impor.")
 	}
@@ -127,11 +127,11 @@ func (s *EntryService) importWallet(ctx context.Context, userID, walletID int64)
 
 // Preview parses a statement and proposes a category for every row, marking
 // rows that already exist in the wallet (same date, type, amount and name).
-func (s *EntryService) Preview(ctx context.Context, userID, walletID int64, csv string, mapping *model.StatementMapping) (*ImportPreview, error) {
-	if err := s.requireImport(ctx, userID); err != nil {
+func (s *EntryService) Preview(ctx context.Context, orgID, walletID int64, csv string, mapping *model.StatementMapping) (*ImportPreview, error) {
+	if err := s.requireImport(ctx, orgID); err != nil {
 		return nil, err
 	}
-	if _, err := s.importWallet(ctx, userID, walletID); err != nil {
+	if _, err := s.importWallet(ctx, orgID, walletID); err != nil {
 		return nil, err
 	}
 	today, _ := domain.ParseDate(s.clock.Today())
@@ -149,7 +149,7 @@ func (s *EntryService) Preview(ctx context.Context, userID, walletID int64, csv 
 	if len(parsed.Rows) == 0 {
 		return out, nil
 	}
-	cats, err := s.categories.List(ctx, userID)
+	cats, err := s.categories.List(ctx, orgID)
 	if err != nil {
 		return nil, err
 	}
@@ -157,7 +157,7 @@ func (s *EntryService) Preview(ctx context.Context, userID, walletID int64, csv 
 	for _, r := range parsed.Rows {
 		from, to = min(from, r.Date), max(to, r.Date)
 	}
-	existing, err := s.entries.ExistingKeys(ctx, userID, walletID, from, to)
+	existing, err := s.entries.ExistingKeys(ctx, orgID, walletID, from, to)
 	if err != nil {
 		return nil, err
 	}
@@ -175,7 +175,7 @@ func (s *EntryService) Preview(ctx context.Context, userID, walletID int64, csv 
 		if id, ok := memo[key]; ok {
 			row.CategoryID = id
 		} else {
-			row.CategoryID = s.guessCategory(ctx, userID, r, cats, fallback[r.Type])
+			row.CategoryID = s.guessCategory(ctx, orgID, r, cats, fallback[r.Type])
 			memo[key] = row.CategoryID
 		}
 		out.Rows = append(out.Rows, row)
@@ -185,8 +185,8 @@ func (s *EntryService) Preview(ctx context.Context, userID, walletID int64, csv 
 
 // guessCategory: the category used last time for this exact name, else the
 // keyword guess, else "Lainnya" of that type.
-func (s *EntryService) guessCategory(ctx context.Context, userID int64, r model.StatementRow, cats []model.Category, fallback int64) int64 {
-	if past, err := s.entries.Suggest(ctx, userID, r.Name, true, 1); err == nil && len(past) == 1 && past[0].Type == r.Type && past[0].CategoryID != 0 {
+func (s *EntryService) guessCategory(ctx context.Context, orgID int64, r model.StatementRow, cats []model.Category, fallback int64) int64 {
+	if past, err := s.entries.Suggest(ctx, orgID, r.Name, true, 1); err == nil && len(past) == 1 && past[0].Type == r.Type && past[0].CategoryID != 0 {
 		return past[0].CategoryID
 	}
 	d := model.ParseQuick(r.Name, nil, cats, s.today())
@@ -215,12 +215,12 @@ type ImportCommit struct {
 }
 
 // Commit records the chosen rows as one batch: all or nothing, and undoable.
-func (s *EntryService) Commit(ctx context.Context, userID int64, in ImportCommit) (*model.ImportBatch, error) {
-	defer s.notify.changed(userID)
-	if err := s.requireImport(ctx, userID); err != nil {
+func (s *EntryService) Commit(ctx context.Context, orgID int64, in ImportCommit) (*model.ImportBatch, error) {
+	defer s.notify.changed(orgID)
+	if err := s.requireImport(ctx, orgID); err != nil {
 		return nil, err
 	}
-	w, err := s.importWallet(ctx, userID, in.WalletID)
+	w, err := s.importWallet(ctx, orgID, in.WalletID)
 	if err != nil {
 		return nil, err
 	}
@@ -230,7 +230,7 @@ func (s *EntryService) Commit(ctx context.Context, userID int64, in ImportCommit
 	if len(in.Rows) > MaxImportRows {
 		return nil, domain.Invalid("rows", "Maksimal "+itoa(MaxImportRows)+" baris sekali impor.")
 	}
-	cats, err := s.categories.List(ctx, userID)
+	cats, err := s.categories.List(ctx, orgID)
 	if err != nil {
 		return nil, err
 	}
@@ -262,7 +262,7 @@ func (s *EntryService) Commit(ctx context.Context, userID int64, in ImportCommit
 		if utf8.RuneCountInString(name) > 80 {
 			name = string([]rune(name)[:80])
 		}
-		txs = append(txs, model.Transaction{UserID: userID, WalletID: w.ID, CategoryID: r.CategoryID, Type: r.Type,
+		txs = append(txs, model.Transaction{OrgID: orgID, WalletID: w.ID, CategoryID: r.CategoryID, Type: r.Type,
 			Name: name, Amount: r.Amount, OccurredOn: d.Format(domain.DateLayout)})
 	}
 	fileName := strings.TrimSpace(in.FileName)
@@ -271,7 +271,7 @@ func (s *EntryService) Commit(ctx context.Context, userID int64, in ImportCommit
 	}
 	unlock := s.locks.Lock(w.ID)
 	defer unlock()
-	b := &model.ImportBatch{UserID: userID, WalletID: w.ID, WalletName: w.Name, FileName: fileName}
+	b := &model.ImportBatch{OrgID: orgID, WalletID: w.ID, WalletName: w.Name, FileName: fileName}
 	if err := s.entries.CreateBatch(ctx, b, txs); err != nil {
 		if errors.Is(err, model.ErrInsufficient) {
 			return nil, domain.Conflict("INSUFFICIENT_BALANCE", "Saldo "+w.Name+" sekarang tidak cukup untuk menampung pengeluaran di impor ini. "+
@@ -282,13 +282,13 @@ func (s *EntryService) Commit(ctx context.Context, userID int64, in ImportCommit
 	return b, nil
 }
 
-func (s *EntryService) Batches(ctx context.Context, userID int64) ([]model.ImportBatch, error) {
-	return s.entries.Batches(ctx, userID)
+func (s *EntryService) Batches(ctx context.Context, orgID int64) ([]model.ImportBatch, error) {
+	return s.entries.Batches(ctx, orgID)
 }
 
-func (s *EntryService) Undo(ctx context.Context, userID, batchID int64) error {
-	defer s.notify.changed(userID)
-	err := s.entries.UndoBatch(ctx, userID, batchID)
+func (s *EntryService) Undo(ctx context.Context, orgID, batchID int64) error {
+	defer s.notify.changed(orgID)
+	err := s.entries.UndoBatch(ctx, orgID, batchID)
 	if errors.Is(err, domain.ErrNoRows) {
 		return domain.NotFound("Impor tidak ditemukan.")
 	}

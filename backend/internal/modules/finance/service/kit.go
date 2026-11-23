@@ -25,15 +25,15 @@ type PlanLimits = kit.PlanLimits
 
 // Short local names for the shared helpers in package kit.
 var (
-	parallel    = kit.Parallel
-	notFoundOr  = kit.NotFoundOr
-	cleanName   = kit.CleanName
-	itoa        = kit.Itoa
-	itoa64      = kit.Itoa64
-	formatRp    = kit.FormatRp
-	validAmount = kit.ValidAmount
-	validColor  = kit.ValidColor
-	userLockKey = kit.UserLockKey
+	parallel     = kit.Parallel
+	notFoundOr   = kit.NotFoundOr
+	cleanName    = kit.CleanName
+	itoa         = kit.Itoa
+	itoa64       = kit.Itoa64
+	formatRp     = kit.FormatRp
+	validAmount  = kit.ValidAmount
+	validColor   = kit.ValidColor
+	scopeLockKey = kit.ScopeLockKey
 )
 
 // notifier wraps kit.Notifier with the lower-case method the services use.

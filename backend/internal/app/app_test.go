@@ -146,6 +146,15 @@ type client struct {
 	e  *env
 	hc *http.Client
 	ua string
+	// org, when set, is sent as X-Org-Id (the workspace the client acts in).
+	org int64
+}
+
+// in returns the same signed-in client acting in another workspace.
+func (c *client) in(orgID int64) *client {
+	cp := *c
+	cp.org = orgID
+	return &cp
 }
 
 func (e *env) client(ua string) *client {
@@ -166,6 +175,9 @@ func (c *client) do(method, path string, body any) (int, []byte) {
 	}
 	if c.ua != "" {
 		req.Header.Set("User-Agent", c.ua)
+	}
+	if c.org != 0 {
+		req.Header.Set("X-Org-Id", fmt.Sprint(c.org))
 	}
 	resp, err := c.hc.Do(req)
 	if err != nil {

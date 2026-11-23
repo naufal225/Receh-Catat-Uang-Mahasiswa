@@ -21,13 +21,23 @@ export function onApiError(fn: Listener): () => void {
   return () => listeners.delete(fn);
 }
 
+// The workspace requests act in (X-Org-Id). The server checks membership on
+// every request, so this is a choice, never a permission. 0 = personal workspace.
+let activeOrg = 0;
+export function setActiveOrg(id: number) {
+  activeOrg = id;
+}
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   let res: Response;
+  const headers: Record<string, string> = {};
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
+  if (activeOrg) headers['X-Org-Id'] = String(activeOrg);
   try {
     res = await fetch('/api' + path, {
       method,
       credentials: 'same-origin',
-      headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
+      headers,
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch {

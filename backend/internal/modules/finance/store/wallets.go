@@ -13,12 +13,12 @@ type WalletRepo struct{ db *sql.DB }
 
 func NewWalletRepo(db *sql.DB) *WalletRepo { return &WalletRepo{db} }
 
-const walletCols = `id, user_id, name, type, color, balance, archived`
+const walletCols = `id, org_id, name, type, color, balance, archived`
 
 func scanWallet(row interface{ Scan(...any) error }) (*model.Wallet, error) {
 	var w model.Wallet
 	var archived int
-	if err := row.Scan(&w.ID, &w.UserID, &w.Name, &w.Type, &w.Color, &w.Balance, &archived); err != nil {
+	if err := row.Scan(&w.ID, &w.OrgID, &w.Name, &w.Type, &w.Color, &w.Balance, &archived); err != nil {
 		return nil, mapNoRows(err)
 	}
 	w.Archived = archived == 1
@@ -29,8 +29,8 @@ var errWalletName = domain.Conflict("WALLET_EXISTS", "Anda sudah punya dompet de
 
 func (r *WalletRepo) Create(ctx context.Context, w *model.Wallet) error {
 	res, err := r.db.ExecContext(ctx,
-		`INSERT INTO wallets (user_id, name, type, color, balance, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
-		w.UserID, w.Name, w.Type, w.Color, w.Balance, unix(time.Now()))
+		`INSERT INTO wallets (org_id, name, type, color, balance, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+		w.OrgID, w.Name, w.Type, w.Color, w.Balance, unix(time.Now()))
 	if isUnique(err) {
 		return errWalletName
 	}
@@ -41,12 +41,12 @@ func (r *WalletRepo) Create(ctx context.Context, w *model.Wallet) error {
 	return err
 }
 
-func (r *WalletRepo) List(ctx context.Context, userID int64, includeArchived bool) ([]model.Wallet, error) {
-	q := `SELECT ` + walletCols + ` FROM wallets WHERE user_id = ?`
+func (r *WalletRepo) List(ctx context.Context, orgID int64, includeArchived bool) ([]model.Wallet, error) {
+	q := `SELECT ` + walletCols + ` FROM wallets WHERE org_id = ?`
 	if !includeArchived {
 		q += ` AND archived = 0`
 	}
-	rows, err := r.db.QueryContext(ctx, q+` ORDER BY archived, balance DESC, id`, userID)
+	rows, err := r.db.QueryContext(ctx, q+` ORDER BY archived, balance DESC, id`, orgID)
 	if err != nil {
 		return nil, err
 	}
@@ -62,16 +62,16 @@ func (r *WalletRepo) List(ctx context.Context, userID int64, includeArchived boo
 	return out, rows.Err()
 }
 
-func (r *WalletRepo) ByID(ctx context.Context, userID, id int64) (*model.Wallet, error) {
+func (r *WalletRepo) ByID(ctx context.Context, orgID, id int64) (*model.Wallet, error) {
 	return scanWallet(r.db.QueryRowContext(ctx,
-		`SELECT `+walletCols+` FROM wallets WHERE id = ? AND user_id = ?`, id, userID))
+		`SELECT `+walletCols+` FROM wallets WHERE id = ? AND org_id = ?`, id, orgID))
 }
 
 // Update never touches balance: only transactions may move money.
 func (r *WalletRepo) Update(ctx context.Context, w *model.Wallet) error {
 	_, err := r.db.ExecContext(ctx,
-		`UPDATE wallets SET name = ?, type = ?, color = ? WHERE id = ? AND user_id = ?`,
-		w.Name, w.Type, w.Color, w.ID, w.UserID)
+		`UPDATE wallets SET name = ?, type = ?, color = ? WHERE id = ? AND org_id = ?`,
+		w.Name, w.Type, w.Color, w.ID, w.OrgID)
 	if isUnique(err) {
 		return errWalletName
 	}

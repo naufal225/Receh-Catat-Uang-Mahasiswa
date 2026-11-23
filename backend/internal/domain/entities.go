@@ -85,6 +85,9 @@ const (
 	EventGoogleLinked    AuditEvent = "google_linked"
 	EventUserCreated     AuditEvent = "admin_user_created"
 	EventStatusChanged   AuditEvent = "admin_status_changed"
+	EventOrgCreated      AuditEvent = "org_created"
+	EventOrgChanged      AuditEvent = "org_changed"
+	EventOrgMember       AuditEvent = "org_member"
 )
 
 type AuditLog struct {

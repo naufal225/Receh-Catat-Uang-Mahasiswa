@@ -92,7 +92,13 @@ export default function Subscription() {
         </div>
       </div>
 
-      {m.billingEnabled && (
+      {m.billingEnabled && !m.isOwner && (
+        <p className="muted" style={{ marginTop: 14 }}>
+          Tim ini memakai paket milik owner-nya. Untuk mengubah paket, minta owner atau pindah ke workspace pribadimu.
+        </p>
+      )}
+
+      {m.billingEnabled && m.isOwner && (
         <>
           <RedeemForm onDone={changed} />
           <p className="muted" style={{ fontSize: 13.5, marginTop: 14 }}>

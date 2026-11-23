@@ -5,6 +5,7 @@ import { createContext, useCallback, useContext, useEffect, useState, type React
 import { api } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { useApp } from '../../lib/app';
+import { useOrg } from '../../lib/org';
 import type { Membership } from '../../lib/types';
 import type { Category, Transaction, TxType, Wallet } from './types';
 
@@ -52,6 +53,7 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
   const [categories, setCategories] = useState<Category[]>([]);
   const [loaded, setLoaded] = useState(false);
   const app = useApp();
+  const orgId = useOrg().active?.id ?? 0;
   const [txModal, setTxModal] = useState<TxModalState>({ open: false, mode: 'expense', edit: null, transferId: null, fromWalletId: null });
 
   const load = useCallback(async () => {
@@ -63,7 +65,7 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (user?.role === 'user') load().catch(() => setLoaded(true));
-  }, [user?.id, user?.role, load]);
+  }, [user?.id, user?.role, orgId, load]);
 
   const appChanged = app.changed;
   const changed = useCallback(() => {

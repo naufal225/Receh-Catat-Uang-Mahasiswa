@@ -23,7 +23,7 @@ type Mounter func(mux *http.ServeMux, g Guards)
 func (s *Server) Mount(m Mounter) { s.mounts = append(s.mounts, m) }
 
 func (s *Server) guards() Guards {
-	return Guards{Anyone: s.anyone, Read: s.userRead, Write: s.userWrite, Admin: s.admin}
+	return Guards{Anyone: s.anyone, Read: s.orgRead, Write: s.orgWrite, Admin: s.admin}
 }
 
 // Exported response helpers so modules answer exactly like the core does.

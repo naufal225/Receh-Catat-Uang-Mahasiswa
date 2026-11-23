@@ -17,6 +17,7 @@ type Services struct {
 	Admin         *usecase.AdminService
 	Membership    *usecase.MembershipService
 	Notifications *usecase.NotificationService
+	Orgs          *usecase.OrgService
 }
 
 type Options struct {
@@ -54,14 +55,28 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/sessions/{id}", s.anyone(s.revokeSession))
 	mux.HandleFunc("DELETE /api/sessions", s.anyone(s.revokeOtherSessions))
 
+	mux.HandleFunc("GET /api/orgs", s.userRead(s.listOrgs))
+	mux.HandleFunc("POST /api/orgs", s.userWrite(s.createOrg))
+	mux.HandleFunc("PUT /api/orgs/{id}", s.userWrite(s.renameOrg))
+	mux.HandleFunc("DELETE /api/orgs/{id}", s.userWrite(s.deleteOrg))
+	mux.HandleFunc("GET /api/orgs/{id}/members", s.userRead(s.orgMembers))
+	mux.HandleFunc("PUT /api/orgs/{id}/members/{uid}", s.userWrite(s.setMemberRole))
+	mux.HandleFunc("DELETE /api/orgs/{id}/members/{uid}", s.userWrite(s.removeMember))
+	mux.HandleFunc("POST /api/orgs/{id}/transfer", s.userWrite(s.transferOrg))
+	mux.HandleFunc("GET /api/orgs/{id}/invitations", s.userRead(s.listInvites))
+	mux.HandleFunc("POST /api/orgs/{id}/invitations", s.userWrite(s.createInvite))
+	mux.HandleFunc("DELETE /api/orgs/{id}/invitations/{iid}", s.userWrite(s.revokeInvite))
+	mux.HandleFunc("GET /api/invitations/{token}", s.userRead(s.inviteInfo))
+	mux.HandleFunc("POST /api/invitations/{token}/accept", s.userWrite(s.acceptInvite))
+
 	mux.HandleFunc("GET /api/notifications", s.userRead(s.inbox))
 	mux.HandleFunc("GET /api/notifications/unread", s.userRead(s.unreadCount))
 	mux.HandleFunc("POST /api/notifications/read", s.userRead(s.markRead))
 	mux.HandleFunc("GET /api/notifications/prefs", s.userRead(s.notificationPrefs))
 	mux.HandleFunc("PUT /api/notifications/prefs", s.userWrite(s.saveNotificationPrefs))
 
-	mux.HandleFunc("GET /api/membership", s.userRead(s.membership))
-	mux.HandleFunc("POST /api/membership/redeem", s.userWrite(s.redeemCode))
+	mux.HandleFunc("GET /api/membership", s.orgRead(s.membership))
+	mux.HandleFunc("POST /api/membership/redeem", s.orgWrite(s.redeemCode))
 
 	mux.HandleFunc("GET /api/admin/users", s.admin(s.adminListUsers))
 	mux.HandleFunc("POST /api/admin/users", s.admin(s.adminCreateUser))

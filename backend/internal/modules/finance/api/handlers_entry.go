@@ -18,7 +18,7 @@ func (s *Handlers) quickParse(w http.ResponseWriter, r *http.Request, u *domain.
 	if !readJSON(w, r, &in) {
 		return
 	}
-	d, err := s.svc.Entries.Parse(r.Context(), u.ID, in.Text)
+	d, err := s.svc.Entries.Parse(r.Context(), orgID(r), in.Text)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -27,7 +27,7 @@ func (s *Handlers) quickParse(w http.ResponseWriter, r *http.Request, u *domain.
 }
 
 func (s *Handlers) suggestNames(w http.ResponseWriter, r *http.Request, u *domain.User, _ *domain.Session) {
-	list, err := s.svc.Entries.Suggest(r.Context(), u.ID, r.URL.Query().Get("q"))
+	list, err := s.svc.Entries.Suggest(r.Context(), orgID(r), r.URL.Query().Get("q"))
 	if err != nil {
 		writeError(w, err)
 		return
@@ -44,7 +44,7 @@ func (s *Handlers) importPreview(w http.ResponseWriter, r *http.Request, u *doma
 	if !readJSONLimit(w, r, &in, importBodyLimit) {
 		return
 	}
-	p, err := s.svc.Entries.Preview(r.Context(), u.ID, in.WalletID, in.CSV, in.Mapping)
+	p, err := s.svc.Entries.Preview(r.Context(), orgID(r), in.WalletID, in.CSV, in.Mapping)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -57,7 +57,7 @@ func (s *Handlers) importCommit(w http.ResponseWriter, r *http.Request, u *domai
 	if !readJSONLimit(w, r, &in, importBodyLimit) {
 		return
 	}
-	b, err := s.svc.Entries.Commit(r.Context(), u.ID, in)
+	b, err := s.svc.Entries.Commit(r.Context(), orgID(r), in)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -66,7 +66,7 @@ func (s *Handlers) importCommit(w http.ResponseWriter, r *http.Request, u *domai
 }
 
 func (s *Handlers) importBatches(w http.ResponseWriter, r *http.Request, u *domain.User, _ *domain.Session) {
-	list, err := s.svc.Entries.Batches(r.Context(), u.ID)
+	list, err := s.svc.Entries.Batches(r.Context(), orgID(r))
 	if err != nil {
 		writeError(w, err)
 		return
@@ -79,7 +79,7 @@ func (s *Handlers) importUndo(w http.ResponseWriter, r *http.Request, u *domain.
 	if !ok {
 		return
 	}
-	if err := s.svc.Entries.Undo(r.Context(), u.ID, id); err != nil {
+	if err := s.svc.Entries.Undo(r.Context(), orgID(r), id); err != nil {
 		writeError(w, err)
 		return
 	}

@@ -10,9 +10,11 @@ import { modules } from '../modules';
 import type { NavItem, PrimaryAction } from '../modules/types';
 import { Icon, Logo } from './Icon';
 import { NotificationBell } from './Notifications';
+import { OrgSwitcher } from './OrgSwitcher';
 import { initial, Link, Modal } from './ui';
 
 const coreUserNav: NavItem[] = [
+  { to: '/app/tim', label: 'Tim', icon: 'users' },
   { to: '/app/notifikasi', label: 'Notifikasi', icon: 'bell' },
   { to: '/app/keamanan', label: 'Perangkat & keamanan', icon: 'device' },
   { to: '/app/langganan', label: 'Langganan', icon: 'sparkle' },
@@ -97,6 +99,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <Link to={isAdmin ? '/admin' : '/app'} className="brand">
           <Logo /> {brand.name}
         </Link>
+        {!isAdmin && <OrgSwitcher variant="side" />}
         {!isAdmin && primary && (
           <button type="button" className="btn btn-accent" style={{ marginBottom: 14 }} onClick={openAction} disabled={actionDisabled}
             aria-keyshortcuts={primary.shortcut?.toUpperCase()} title={primary.shortcut ? `Pintasan keyboard: ${primary.shortcut.toUpperCase()}` : undefined}>
@@ -133,6 +136,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <Link to={isAdmin ? '/admin' : '/app'} className="brand">
           <Logo size={26} /> {brand.name}
         </Link>
+        {!isAdmin && <OrgSwitcher variant="chip" />}
         <div style={{ display: 'flex', gap: 2 }}>
           {!isAdmin && <NotificationBell />}
           <ThemeToggle />

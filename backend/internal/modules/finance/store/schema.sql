@@ -5,7 +5,7 @@
 -- a unique index ignores NULLs, so only live wallets need distinct names.
 CREATE TABLE IF NOT EXISTS wallets (
     id          BIGINT      NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    user_id     BIGINT      NOT NULL,
+    org_id     BIGINT      NOT NULL,
     name        VARCHAR(40) NOT NULL,
     type        VARCHAR(10) NOT NULL,
     color       VARCHAR(8)  NOT NULL,
@@ -13,26 +13,26 @@ CREATE TABLE IF NOT EXISTS wallets (
     archived    TINYINT(1)  NOT NULL DEFAULT 0,
     created_at  BIGINT      NOT NULL,
     active_name VARCHAR(40) GENERATED ALWAYS AS (IF(archived = 0, name, NULL)) STORED,
-    UNIQUE KEY uq_wallet_name (user_id, active_name),
-    CONSTRAINT fk_wallets_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+    UNIQUE KEY uq_wallet_name (org_id, active_name),
+    CONSTRAINT fk_wallets_org FOREIGN KEY (org_id) REFERENCES organizations (id) ON DELETE CASCADE,
     CONSTRAINT ck_wallets_type CHECK (type IN ('bank', 'ewallet', 'cash', 'other')),
     CONSTRAINT ck_wallets_balance CHECK (balance >= 0)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci;
 
 CREATE TABLE IF NOT EXISTS categories (
     id      BIGINT      NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    user_id BIGINT      NOT NULL,
+    org_id BIGINT      NOT NULL,
     name    VARCHAR(40) NOT NULL,
     type    VARCHAR(10) NOT NULL,
     color   VARCHAR(8)  NOT NULL,
-    UNIQUE KEY uq_category_name (user_id, type, name),
-    CONSTRAINT fk_categories_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+    UNIQUE KEY uq_category_name (org_id, type, name),
+    CONSTRAINT fk_categories_org FOREIGN KEY (org_id) REFERENCES organizations (id) ON DELETE CASCADE,
     CONSTRAINT ck_categories_type CHECK (type IN ('income', 'expense'))
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci;
 
 CREATE TABLE IF NOT EXISTS recurring (
     id          BIGINT      NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    user_id     BIGINT      NOT NULL,
+    org_id     BIGINT      NOT NULL,
     wallet_id   BIGINT      NOT NULL,
     category_id BIGINT      NOT NULL,
     type        VARCHAR(10) NOT NULL,
@@ -44,7 +44,7 @@ CREATE TABLE IF NOT EXISTS recurring (
     active      TINYINT(1)  NOT NULL DEFAULT 1,
     last_error  VARCHAR(300) NOT NULL DEFAULT '',
     KEY idx_recurring_due (active, next_due),
-    CONSTRAINT fk_recurring_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+    CONSTRAINT fk_recurring_org FOREIGN KEY (org_id) REFERENCES organizations (id) ON DELETE CASCADE,
     CONSTRAINT fk_recurring_wallet FOREIGN KEY (wallet_id) REFERENCES wallets (id),
     CONSTRAINT fk_recurring_category FOREIGN KEY (category_id) REFERENCES categories (id),
     CONSTRAINT ck_recurring_type CHECK (type IN ('income', 'expense')),
@@ -56,7 +56,7 @@ CREATE TABLE IF NOT EXISTS recurring (
 -- destination receives, fee is paid on top by the source.
 CREATE TABLE IF NOT EXISTS transfers (
     id             BIGINT      NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    user_id        BIGINT      NOT NULL,
+    org_id        BIGINT      NOT NULL,
     from_wallet_id BIGINT      NOT NULL,
     to_wallet_id   BIGINT      NOT NULL,
     amount         BIGINT      NOT NULL,
@@ -64,8 +64,8 @@ CREATE TABLE IF NOT EXISTS transfers (
     note           VARCHAR(80) NOT NULL DEFAULT '',
     occurred_on    DATE        NOT NULL,
     created_at     BIGINT      NOT NULL,
-    KEY idx_transfers_route (user_id, from_wallet_id, to_wallet_id, id),
-    CONSTRAINT fk_transfers_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+    KEY idx_transfers_route (org_id, from_wallet_id, to_wallet_id, id),
+    CONSTRAINT fk_transfers_org FOREIGN KEY (org_id) REFERENCES organizations (id) ON DELETE CASCADE,
     CONSTRAINT fk_transfers_from FOREIGN KEY (from_wallet_id) REFERENCES wallets (id),
     CONSTRAINT fk_transfers_to FOREIGN KEY (to_wallet_id) REFERENCES wallets (id),
     CONSTRAINT ck_transfers_amount CHECK (amount > 0),
@@ -78,7 +78,7 @@ CREATE TABLE IF NOT EXISTS transfers (
 -- ordinary expense in the "Biaya admin" category. All three carry transfer_id.
 CREATE TABLE IF NOT EXISTS transactions (
     id           BIGINT      NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    user_id      BIGINT      NOT NULL,
+    org_id      BIGINT      NOT NULL,
     wallet_id    BIGINT      NOT NULL,
     category_id  BIGINT      NULL,
     type         VARCHAR(12) NOT NULL,
@@ -89,7 +89,7 @@ CREATE TABLE IF NOT EXISTS transactions (
     transfer_id  BIGINT      NULL,
     import_batch_id BIGINT   NULL,
     created_at   BIGINT      NOT NULL,
-    KEY idx_tx_user_date (user_id, occurred_on DESC, id DESC),
+    KEY idx_tx_org_date (org_id, occurred_on DESC, id DESC),
     KEY idx_tx_wallet (wallet_id),
     KEY idx_tx_category (category_id),
     KEY idx_tx_transfer (transfer_id),
@@ -97,7 +97,7 @@ CREATE TABLE IF NOT EXISTS transactions (
     -- A rule posts at most once per date, so a restart or retry never double
     -- charges. Rows without a rule have a NULL recurring_id, which never collides.
     UNIQUE KEY uq_tx_occurrence (recurring_id, occurred_on),
-    CONSTRAINT fk_tx_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+    CONSTRAINT fk_tx_org FOREIGN KEY (org_id) REFERENCES organizations (id) ON DELETE CASCADE,
     CONSTRAINT fk_tx_wallet FOREIGN KEY (wallet_id) REFERENCES wallets (id),
     CONSTRAINT fk_tx_category FOREIGN KEY (category_id) REFERENCES categories (id),
     CONSTRAINT fk_tx_recurring FOREIGN KEY (recurring_id) REFERENCES recurring (id) ON DELETE SET NULL,
@@ -110,12 +110,12 @@ CREATE TABLE IF NOT EXISTS transactions (
 -- its budget: a budget for a category that no longer exists means nothing.
 CREATE TABLE IF NOT EXISTS budgets (
     id          BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    user_id     BIGINT NOT NULL,
+    org_id     BIGINT NOT NULL,
     category_id BIGINT NOT NULL,
     amount      BIGINT NOT NULL,
     created_at  BIGINT NOT NULL,
-    UNIQUE KEY uq_budget_category (user_id, category_id),
-    CONSTRAINT fk_budget_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+    UNIQUE KEY uq_budget_category (org_id, category_id),
+    CONSTRAINT fk_budget_org FOREIGN KEY (org_id) REFERENCES organizations (id) ON DELETE CASCADE,
     CONSTRAINT fk_budget_category FOREIGN KEY (category_id) REFERENCES categories (id) ON DELETE CASCADE,
     CONSTRAINT ck_budget_amount CHECK (amount > 0)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci;
@@ -124,7 +124,7 @@ CREATE TABLE IF NOT EXISTS budgets (
 -- otherwise the sum of goal_contributions (a virtual piggy bank).
 CREATE TABLE IF NOT EXISTS goals (
     id            BIGINT      NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    user_id       BIGINT      NOT NULL,
+    org_id       BIGINT      NOT NULL,
     name          VARCHAR(60) NOT NULL,
     target_amount BIGINT      NOT NULL,
     deadline      DATE        NULL,
@@ -132,8 +132,8 @@ CREATE TABLE IF NOT EXISTS goals (
     color         VARCHAR(8)  NOT NULL,
     archived_at   BIGINT      NULL,
     created_at    BIGINT      NOT NULL,
-    KEY idx_goals_user (user_id, archived_at),
-    CONSTRAINT fk_goal_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+    KEY idx_goals_org (org_id, archived_at),
+    CONSTRAINT fk_goal_org FOREIGN KEY (org_id) REFERENCES organizations (id) ON DELETE CASCADE,
     CONSTRAINT fk_goal_wallet FOREIGN KEY (wallet_id) REFERENCES wallets (id) ON DELETE SET NULL,
     CONSTRAINT ck_goal_target CHECK (target_amount > 0)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci;
@@ -154,14 +154,14 @@ CREATE TABLE IF NOT EXISTS goal_contributions (
 -- import can be undone at once.
 CREATE TABLE IF NOT EXISTS import_batches (
     id         BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    user_id    BIGINT       NOT NULL,
+    org_id    BIGINT       NOT NULL,
     wallet_id  BIGINT       NOT NULL,
     file_name  VARCHAR(120) NOT NULL DEFAULT '',
     row_count  INT          NOT NULL,
     total_in   BIGINT       NOT NULL,
     total_out  BIGINT       NOT NULL,
     created_at BIGINT       NOT NULL,
-    KEY idx_import_user (user_id, created_at),
-    CONSTRAINT fk_import_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+    KEY idx_import_org (org_id, created_at),
+    CONSTRAINT fk_import_org FOREIGN KEY (org_id) REFERENCES organizations (id) ON DELETE CASCADE,
     CONSTRAINT fk_import_wallet FOREIGN KEY (wallet_id) REFERENCES wallets (id)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci;

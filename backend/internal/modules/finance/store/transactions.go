@@ -18,7 +18,7 @@ func NewTransactionRepo(db *sql.DB) *TransactionRepo { return &TransactionRepo{d
 // (absent on transfer legs) and, for a transfer leg, the wallet on the other
 // side plus the fee the source paid.
 const txSelect = `
-	SELECT t.id, t.user_id, t.wallet_id, w.name, w.color,
+	SELECT t.id, t.org_id, t.wallet_id, w.name, w.color,
 	       COALESCE(t.category_id, 0), COALESCE(c.name, ''), COALESCE(c.color, ''),
 	       t.type, t.name, t.amount, t.occurred_on, t.recurring_id, t.transfer_id, t.import_batch_id,
 	       COALESCE(cw.name, ''), COALESCE(cw.color, ''),
@@ -36,7 +36,7 @@ func scanTx(row interface{ Scan(...any) error }) (*model.Transaction, error) {
 	var t model.Transaction
 	var recurring, transfer, batch sql.NullInt64
 	var created int64
-	err := row.Scan(&t.ID, &t.UserID, &t.WalletID, &t.WalletName, &t.WalletColor, &t.CategoryID, &t.CategoryName,
+	err := row.Scan(&t.ID, &t.OrgID, &t.WalletID, &t.WalletName, &t.WalletColor, &t.CategoryID, &t.CategoryName,
 		&t.CategoryColor, &t.Type, &t.Name, &t.Amount, &t.OccurredOn, &recurring, &transfer, &batch,
 		&t.CounterpartName, &t.CounterpartColor, &t.TransferFee, &created)
 	if err != nil {
@@ -88,9 +88,9 @@ func nullID(id int64) any {
 func insertTx(ctx context.Context, tx *sql.Tx, t *model.Transaction) error {
 	t.CreatedAt = time.Now().UTC()
 	res, err := tx.ExecContext(ctx,
-		`INSERT INTO transactions (user_id, wallet_id, category_id, type, name, amount, occurred_on, recurring_id, transfer_id, import_batch_id, created_at)
+		`INSERT INTO transactions (org_id, wallet_id, category_id, type, name, amount, occurred_on, recurring_id, transfer_id, import_batch_id, created_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		t.UserID, t.WalletID, nullID(t.CategoryID), t.Type, t.Name, t.Amount, t.OccurredOn, t.RecurringID, nullInt(t.TransferID),
+		t.OrgID, t.WalletID, nullID(t.CategoryID), t.Type, t.Name, t.Amount, t.OccurredOn, t.RecurringID, nullInt(t.TransferID),
 		nullInt(t.ImportBatchID), unix(t.CreatedAt))
 	if err != nil {
 		return err
@@ -126,9 +126,9 @@ func (r *TransactionRepo) Update(ctx context.Context, old, updated *model.Transa
 		}
 		_, err := tx.ExecContext(ctx,
 			`UPDATE transactions SET wallet_id = ?, category_id = ?, type = ?, name = ?, amount = ?, occurred_on = ?
-			 WHERE id = ? AND user_id = ? AND transfer_id IS NULL`,
+			 WHERE id = ? AND org_id = ? AND transfer_id IS NULL`,
 			updated.WalletID, updated.CategoryID, updated.Type, updated.Name, updated.Amount, updated.OccurredOn,
-			updated.ID, updated.UserID)
+			updated.ID, updated.OrgID)
 		if isUnique(err) {
 			return domain.Conflict("DUPLICATE_OCCURRENCE", "Transaksi rutin ini sudah tercatat pada tanggal tersebut.")
 		}
@@ -141,13 +141,13 @@ func (r *TransactionRepo) Delete(ctx context.Context, t *model.Transaction) erro
 		if err := applyDelta(ctx, tx, t.WalletID, -t.Type.Delta(t.Amount)); err != nil {
 			return err
 		}
-		_, err := tx.ExecContext(ctx, `DELETE FROM transactions WHERE id = ? AND user_id = ? AND transfer_id IS NULL`, t.ID, t.UserID)
+		_, err := tx.ExecContext(ctx, `DELETE FROM transactions WHERE id = ? AND org_id = ? AND transfer_id IS NULL`, t.ID, t.OrgID)
 		return err
 	})
 }
 
-func (r *TransactionRepo) ByID(ctx context.Context, userID, id int64) (*model.Transaction, error) {
-	return scanTx(r.db.QueryRowContext(ctx, txSelect+` WHERE t.id = ? AND t.user_id = ?`, id, userID))
+func (r *TransactionRepo) ByID(ctx context.Context, orgID, id int64) (*model.Transaction, error) {
+	return scanTx(r.db.QueryRowContext(ctx, txSelect+` WHERE t.id = ? AND t.org_id = ?`, id, orgID))
 }
 
 // visibleLegs keeps one row per transfer in a list across all wallets (the
@@ -160,10 +160,10 @@ func visibleLegs(walletID int64) string {
 	return ` AND t.type <> 'transfer_in'`
 }
 
-func (r *TransactionRepo) List(ctx context.Context, userID int64, f model.TxFilter) (domain.Page[model.Transaction], error) {
+func (r *TransactionRepo) List(ctx context.Context, orgID int64, f model.TxFilter) (domain.Page[model.Transaction], error) {
 	limit, offset, page := pageBounds(f.Page, f.PageSize)
-	where := []string{`t.user_id = ?`}
-	args := []any{userID}
+	where := []string{`t.org_id = ?`}
+	args := []any{orgID}
 	if s := strings.TrimSpace(f.Search); s != "" {
 		where = append(where, `t.name LIKE ?`)
 		args = append(args, "%"+escapeLike(s)+"%")
@@ -214,9 +214,9 @@ func (r *TransactionRepo) List(ctx context.Context, userID int64, f model.TxFilt
 	return out, rows.Err()
 }
 
-func (r *TransactionRepo) Latest(ctx context.Context, userID, walletID int64, limit int) ([]model.Transaction, error) {
-	q := txSelect + ` WHERE t.user_id = ?`
-	args := []any{userID}
+func (r *TransactionRepo) Latest(ctx context.Context, orgID, walletID int64, limit int) ([]model.Transaction, error) {
+	q := txSelect + ` WHERE t.org_id = ?`
+	args := []any{orgID}
 	if walletID > 0 {
 		q += ` AND t.wallet_id = ?`
 		args = append(args, walletID)
@@ -230,10 +230,10 @@ func (r *TransactionRepo) Latest(ctx context.Context, userID, walletID int64, li
 	return collectTx(rows)
 }
 
-func (r *TransactionRepo) AllBetween(ctx context.Context, userID int64, from, to string) ([]model.Transaction, error) {
+func (r *TransactionRepo) AllBetween(ctx context.Context, orgID int64, from, to string) ([]model.Transaction, error) {
 	rows, err := r.db.QueryContext(ctx,
-		txSelect+` WHERE t.user_id = ? AND t.occurred_on BETWEEN ? AND ?`+visibleLegs(0)+` ORDER BY t.occurred_on, t.id`,
-		userID, from, to)
+		txSelect+` WHERE t.org_id = ? AND t.occurred_on BETWEEN ? AND ?`+visibleLegs(0)+` ORDER BY t.occurred_on, t.id`,
+		orgID, from, to)
 	if err != nil {
 		return nil, err
 	}
@@ -255,12 +255,12 @@ func collectTx(rows *sql.Rows) ([]model.Transaction, error) {
 
 // SumByDay counts only income and expense: transfer legs fall through both CASE
 // arms, so moving money between one's own wallets never inflates the chart.
-func (r *TransactionRepo) SumByDay(ctx context.Context, userID, walletID int64, from, to string) ([]model.DaySum, error) {
+func (r *TransactionRepo) SumByDay(ctx context.Context, orgID, walletID int64, from, to string) ([]model.DaySum, error) {
 	q := `SELECT occurred_on,
 	             COALESCE(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END), 0),
 	             COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0)
-	      FROM transactions WHERE user_id = ? AND occurred_on BETWEEN ? AND ?`
-	args := []any{userID, from, to}
+	      FROM transactions WHERE org_id = ? AND occurred_on BETWEEN ? AND ?`
+	args := []any{orgID, from, to}
 	if walletID > 0 {
 		q += ` AND wallet_id = ?`
 		args = append(args, walletID)
@@ -281,11 +281,11 @@ func (r *TransactionRepo) SumByDay(ctx context.Context, userID, walletID int64, 
 	return out, rows.Err()
 }
 
-func (r *TransactionRepo) SumByCategory(ctx context.Context, userID, walletID int64, t model.TxType, from, to string) ([]model.CategorySlice, error) {
+func (r *TransactionRepo) SumByCategory(ctx context.Context, orgID, walletID int64, t model.TxType, from, to string) ([]model.CategorySlice, error) {
 	q := `SELECT c.id, c.name, c.color, SUM(tx.amount) AS total
 	      FROM transactions tx JOIN categories c ON c.id = tx.category_id
-	      WHERE tx.user_id = ? AND tx.type = ? AND tx.occurred_on BETWEEN ? AND ?`
-	args := []any{userID, t, from, to}
+	      WHERE tx.org_id = ? AND tx.type = ? AND tx.occurred_on BETWEEN ? AND ?`
+	args := []any{orgID, t, from, to}
 	if walletID > 0 {
 		q += ` AND tx.wallet_id = ?`
 		args = append(args, walletID)
@@ -307,7 +307,7 @@ func (r *TransactionRepo) SumByCategory(ctx context.Context, userID, walletID in
 }
 
 // WalletSummaries lists each wallet with activity in the range or a live balance.
-func (r *TransactionRepo) WalletSummaries(ctx context.Context, userID int64, from, to string) ([]model.WalletSummary, error) {
+func (r *TransactionRepo) WalletSummaries(ctx context.Context, orgID int64, from, to string) ([]model.WalletSummary, error) {
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT w.name,
 		       COALESCE(SUM(CASE WHEN t.type = 'income' THEN t.amount END), 0) AS income,
@@ -317,10 +317,10 @@ func (r *TransactionRepo) WalletSummaries(ctx context.Context, userID int64, fro
 		       w.balance
 		FROM wallets w
 		LEFT JOIN transactions t ON t.wallet_id = w.id AND t.occurred_on BETWEEN ? AND ?
-		WHERE w.user_id = ?
+		WHERE w.org_id = ?
 		GROUP BY w.id
 		HAVING MAX(w.archived) = 0 OR COUNT(t.id) > 0
-		ORDER BY w.balance DESC, w.id`, from, to, userID)
+		ORDER BY w.balance DESC, w.id`, from, to, orgID)
 	if err != nil {
 		return nil, err
 	}

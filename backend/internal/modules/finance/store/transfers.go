@@ -67,7 +67,7 @@ func insertLegs(ctx context.Context, tx *sql.Tx, t *model.Transfer) error {
 		})
 	}
 	for i := range legs {
-		legs[i].UserID, legs[i].OccurredOn, legs[i].TransferID = t.UserID, t.OccurredOn, &id
+		legs[i].OrgID, legs[i].OccurredOn, legs[i].TransferID = t.OrgID, t.OccurredOn, &id
 		if err := insertTx(ctx, tx, &legs[i]); err != nil {
 			return err
 		}
@@ -82,9 +82,9 @@ func (r *TransferRepo) Create(ctx context.Context, t *model.Transfer) error {
 		}
 		t.CreatedAt = time.Now().UTC()
 		res, err := tx.ExecContext(ctx,
-			`INSERT INTO transfers (user_id, from_wallet_id, to_wallet_id, amount, fee, note, occurred_on, created_at)
+			`INSERT INTO transfers (org_id, from_wallet_id, to_wallet_id, amount, fee, note, occurred_on, created_at)
 			 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-			t.UserID, t.FromWalletID, t.ToWalletID, t.Amount, t.Fee, t.Note, t.OccurredOn, unix(t.CreatedAt))
+			t.OrgID, t.FromWalletID, t.ToWalletID, t.Amount, t.Fee, t.Note, t.OccurredOn, unix(t.CreatedAt))
 		if err != nil {
 			return err
 		}
@@ -104,9 +104,9 @@ func (r *TransferRepo) Update(ctx context.Context, old, updated *model.Transfer)
 		}
 		res, err := tx.ExecContext(ctx,
 			`UPDATE transfers SET from_wallet_id = ?, to_wallet_id = ?, amount = ?, fee = ?, note = ?, occurred_on = ?
-			 WHERE id = ? AND user_id = ?`,
+			 WHERE id = ? AND org_id = ?`,
 			updated.FromWalletID, updated.ToWalletID, updated.Amount, updated.Fee, updated.Note, updated.OccurredOn,
-			old.ID, old.UserID)
+			old.ID, old.OrgID)
 		if err != nil {
 			return err
 		}
@@ -114,7 +114,7 @@ func (r *TransferRepo) Update(ctx context.Context, old, updated *model.Transfer)
 			// Nothing to change is fine (MySQL reports 0 for identical values),
 			// but a vanished row is not.
 			var exists int
-			if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM transfers WHERE id = ? AND user_id = ?`, old.ID, old.UserID).Scan(&exists); err != nil {
+			if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM transfers WHERE id = ? AND org_id = ?`, old.ID, old.OrgID).Scan(&exists); err != nil {
 				return err
 			}
 			if exists == 0 {
@@ -124,7 +124,7 @@ func (r *TransferRepo) Update(ctx context.Context, old, updated *model.Transfer)
 		if _, err := tx.ExecContext(ctx, `DELETE FROM transactions WHERE transfer_id = ?`, old.ID); err != nil {
 			return err
 		}
-		updated.ID, updated.UserID = old.ID, old.UserID
+		updated.ID, updated.OrgID = old.ID, old.OrgID
 		return insertLegs(ctx, tx, updated)
 	})
 }
@@ -137,22 +137,22 @@ func (r *TransferRepo) Delete(ctx context.Context, t *model.Transfer) error {
 		if _, err := tx.ExecContext(ctx, `DELETE FROM transactions WHERE transfer_id = ?`, t.ID); err != nil {
 			return err
 		}
-		_, err := tx.ExecContext(ctx, `DELETE FROM transfers WHERE id = ? AND user_id = ?`, t.ID, t.UserID)
+		_, err := tx.ExecContext(ctx, `DELETE FROM transfers WHERE id = ? AND org_id = ?`, t.ID, t.OrgID)
 		return err
 	})
 }
 
-func (r *TransferRepo) ByID(ctx context.Context, userID, id int64) (*model.Transfer, error) {
+func (r *TransferRepo) ByID(ctx context.Context, orgID, id int64) (*model.Transfer, error) {
 	var t model.Transfer
 	var created int64
 	err := r.db.QueryRowContext(ctx, `
-		SELECT tr.id, tr.user_id, tr.from_wallet_id, fw.name, tr.to_wallet_id, tw.name,
+		SELECT tr.id, tr.org_id, tr.from_wallet_id, fw.name, tr.to_wallet_id, tw.name,
 		       tr.amount, tr.fee, tr.note, tr.occurred_on, tr.created_at
 		FROM transfers tr
 		JOIN wallets fw ON fw.id = tr.from_wallet_id
 		JOIN wallets tw ON tw.id = tr.to_wallet_id
-		WHERE tr.id = ? AND tr.user_id = ?`, id, userID).
-		Scan(&t.ID, &t.UserID, &t.FromWalletID, &t.FromWalletName, &t.ToWalletID, &t.ToWalletName,
+		WHERE tr.id = ? AND tr.org_id = ?`, id, orgID).
+		Scan(&t.ID, &t.OrgID, &t.FromWalletID, &t.FromWalletName, &t.ToWalletID, &t.ToWalletName,
 			&t.Amount, &t.Fee, &t.Note, &t.OccurredOn, &created)
 	if err != nil {
 		return nil, mapNoRows(err)
@@ -161,11 +161,11 @@ func (r *TransferRepo) ByID(ctx context.Context, userID, id int64) (*model.Trans
 	return &t, nil
 }
 
-func (r *TransferRepo) LastFee(ctx context.Context, userID, fromWalletID, toWalletID int64) (int64, bool, error) {
+func (r *TransferRepo) LastFee(ctx context.Context, orgID, fromWalletID, toWalletID int64) (int64, bool, error) {
 	var fee int64
 	err := r.db.QueryRowContext(ctx,
-		`SELECT fee FROM transfers WHERE user_id = ? AND from_wallet_id = ? AND to_wallet_id = ? ORDER BY id DESC LIMIT 1`,
-		userID, fromWalletID, toWalletID).Scan(&fee)
+		`SELECT fee FROM transfers WHERE org_id = ? AND from_wallet_id = ? AND to_wallet_id = ? ORDER BY id DESC LIMIT 1`,
+		orgID, fromWalletID, toWalletID).Scan(&fee)
 	if errors.Is(err, sql.ErrNoRows) {
 		return 0, false, nil
 	}

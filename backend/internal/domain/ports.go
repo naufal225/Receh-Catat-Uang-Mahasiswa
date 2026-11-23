@@ -47,10 +47,10 @@ type SessionRepository interface {
 	DeleteExpired(ctx context.Context) error
 }
 
-// ChangeNotifier is told whenever a user's financial data changes, so caches
+// ChangeNotifier is told whenever a workspace's data changes, so caches
 // of derived views (the dashboard) know to stop serving the old answer.
 type ChangeNotifier interface {
-	Changed(userID int64)
+	Changed(orgID int64)
 }
 
 type AuditRepository interface {

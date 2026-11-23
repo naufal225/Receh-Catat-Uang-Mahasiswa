@@ -14,7 +14,7 @@ func NewGoalRepo(db *sql.DB) *GoalRepo { return &GoalRepo{db} }
 // goalSelect fills both progress sources in one query: the contribution sum
 // and the linked wallet's balance.
 const goalSelect = `
-	SELECT g.id, g.user_id, g.name, g.target_amount, g.deadline, g.wallet_id, COALESCE(w.name, ''),
+	SELECT g.id, g.org_id, g.name, g.target_amount, g.deadline, g.wallet_id, COALESCE(w.name, ''),
 	       g.color, g.archived_at, g.created_at,
 	       COALESCE((SELECT SUM(c.amount) FROM goal_contributions c WHERE c.goal_id = g.id), 0),
 	       COALESCE(w.balance, 0)
@@ -25,7 +25,7 @@ func scanGoal(row interface{ Scan(...any) error }) (*model.Goal, error) {
 	var deadline sql.NullString
 	var wallet, archived sql.NullInt64
 	var created int64
-	if err := row.Scan(&g.ID, &g.UserID, &g.Name, &g.TargetAmount, &deadline, &wallet, &g.WalletName,
+	if err := row.Scan(&g.ID, &g.OrgID, &g.Name, &g.TargetAmount, &deadline, &wallet, &g.WalletName,
 		&g.Color, &archived, &created, &g.Contributed, &g.WalletBalance); err != nil {
 		return nil, mapNoRows(err)
 	}
@@ -60,8 +60,8 @@ func nullInt(v *int64) any {
 func (r *GoalRepo) Create(ctx context.Context, g *model.Goal) error {
 	g.CreatedAt = time.Now().UTC()
 	res, err := r.db.ExecContext(ctx,
-		`INSERT INTO goals (user_id, name, target_amount, deadline, wallet_id, color, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		g.UserID, g.Name, g.TargetAmount, nullStr(g.Deadline), nullInt(g.WalletID), g.Color, unix(g.CreatedAt))
+		`INSERT INTO goals (org_id, name, target_amount, deadline, wallet_id, color, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		g.OrgID, g.Name, g.TargetAmount, nullStr(g.Deadline), nullInt(g.WalletID), g.Color, unix(g.CreatedAt))
 	if err != nil {
 		return err
 	}
@@ -71,13 +71,13 @@ func (r *GoalRepo) Create(ctx context.Context, g *model.Goal) error {
 
 func (r *GoalRepo) Update(ctx context.Context, g *model.Goal) error {
 	_, err := r.db.ExecContext(ctx,
-		`UPDATE goals SET name = ?, target_amount = ?, deadline = ?, wallet_id = ?, color = ? WHERE id = ? AND user_id = ?`,
-		g.Name, g.TargetAmount, nullStr(g.Deadline), nullInt(g.WalletID), g.Color, g.ID, g.UserID)
+		`UPDATE goals SET name = ?, target_amount = ?, deadline = ?, wallet_id = ?, color = ? WHERE id = ? AND org_id = ?`,
+		g.Name, g.TargetAmount, nullStr(g.Deadline), nullInt(g.WalletID), g.Color, g.ID, g.OrgID)
 	return err
 }
 
-func (r *GoalRepo) Delete(ctx context.Context, userID, id int64) (bool, error) {
-	res, err := r.db.ExecContext(ctx, `DELETE FROM goals WHERE id = ? AND user_id = ?`, id, userID)
+func (r *GoalRepo) Delete(ctx context.Context, orgID, id int64) (bool, error) {
+	res, err := r.db.ExecContext(ctx, `DELETE FROM goals WHERE id = ? AND org_id = ?`, id, orgID)
 	if err != nil {
 		return false, err
 	}
@@ -85,16 +85,16 @@ func (r *GoalRepo) Delete(ctx context.Context, userID, id int64) (bool, error) {
 	return n > 0, err
 }
 
-func (r *GoalRepo) ByID(ctx context.Context, userID, id int64) (*model.Goal, error) {
-	return scanGoal(r.db.QueryRowContext(ctx, goalSelect+` WHERE g.id = ? AND g.user_id = ?`, id, userID))
+func (r *GoalRepo) ByID(ctx context.Context, orgID, id int64) (*model.Goal, error) {
+	return scanGoal(r.db.QueryRowContext(ctx, goalSelect+` WHERE g.id = ? AND g.org_id = ?`, id, orgID))
 }
 
-func (r *GoalRepo) List(ctx context.Context, userID int64, includeArchived bool) ([]model.Goal, error) {
-	q := goalSelect + ` WHERE g.user_id = ?`
+func (r *GoalRepo) List(ctx context.Context, orgID int64, includeArchived bool) ([]model.Goal, error) {
+	q := goalSelect + ` WHERE g.org_id = ?`
 	if !includeArchived {
 		q += ` AND g.archived_at IS NULL`
 	}
-	rows, err := r.db.QueryContext(ctx, q+` ORDER BY g.archived_at IS NOT NULL, g.deadline IS NULL, g.deadline, g.id`, userID)
+	rows, err := r.db.QueryContext(ctx, q+` ORDER BY g.archived_at IS NOT NULL, g.deadline IS NULL, g.deadline, g.id`, orgID)
 	if err != nil {
 		return nil, err
 	}
@@ -110,21 +110,21 @@ func (r *GoalRepo) List(ctx context.Context, userID int64, includeArchived bool)
 	return out, rows.Err()
 }
 
-func (r *GoalRepo) CountActive(ctx context.Context, userID int64) (int, error) {
+func (r *GoalRepo) CountActive(ctx context.Context, orgID int64) (int, error) {
 	var n int
-	err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM goals WHERE user_id = ? AND archived_at IS NULL`, userID).Scan(&n)
+	err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM goals WHERE org_id = ? AND archived_at IS NULL`, orgID).Scan(&n)
 	return n, err
 }
 
-func (r *GoalRepo) SetArchived(ctx context.Context, userID, id int64, at *time.Time) (bool, error) {
-	res, err := r.db.ExecContext(ctx, `UPDATE goals SET archived_at = ? WHERE id = ? AND user_id = ?`, nullTime(at), id, userID)
+func (r *GoalRepo) SetArchived(ctx context.Context, orgID, id int64, at *time.Time) (bool, error) {
+	res, err := r.db.ExecContext(ctx, `UPDATE goals SET archived_at = ? WHERE id = ? AND org_id = ?`, nullTime(at), id, orgID)
 	if err != nil {
 		return false, err
 	}
 	if n, _ := res.RowsAffected(); n > 0 {
 		return true, nil
 	}
-	_, err = r.ByID(ctx, userID, id)
+	_, err = r.ByID(ctx, orgID, id)
 	return err == nil, ignoreNoRows(err)
 }
 

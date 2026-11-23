@@ -16,6 +16,7 @@ import type { AppModule } from '../types';
 
 export const finance: AppModule = {
   id: 'finance',
+  signupPath: '/app/dompet?baru=1',
   pages: {
     '/app': { el: Dashboard, title: 'Ringkasan' },
     '/app/transaksi': { el: Transactions, title: 'Riwayat transaksi' },

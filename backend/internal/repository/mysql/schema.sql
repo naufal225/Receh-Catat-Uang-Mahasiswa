@@ -129,3 +129,45 @@ CREATE TABLE IF NOT EXISTS notification_prefs (
     CONSTRAINT fk_nprefs_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci;
 
+
+-- Organizations (workspaces). Module data belongs to an org, not to a user.
+-- owner_id is the one person who pays and may delete the org.
+CREATE TABLE IF NOT EXISTS organizations (
+    id         BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    name       VARCHAR(80)  NOT NULL,
+    personal   TINYINT(1)   NOT NULL DEFAULT 0,
+    owner_id   BIGINT       NOT NULL,
+    created_at BIGINT       NOT NULL,
+    KEY idx_org_owner (owner_id),
+    CONSTRAINT fk_org_owner FOREIGN KEY (owner_id) REFERENCES users (id) ON DELETE CASCADE
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci;
+
+CREATE TABLE IF NOT EXISTS org_members (
+    org_id     BIGINT      NOT NULL,
+    user_id    BIGINT      NOT NULL,
+    role       VARCHAR(8)  NOT NULL,
+    created_at BIGINT      NOT NULL,
+    PRIMARY KEY (org_id, user_id),
+    KEY idx_org_members_user (user_id),
+    CONSTRAINT fk_orgm_org FOREIGN KEY (org_id) REFERENCES organizations (id) ON DELETE CASCADE,
+    CONSTRAINT fk_orgm_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+    CONSTRAINT ck_orgm_role CHECK (role IN ('owner', 'admin', 'member'))
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci;
+
+-- Invitations by email. Only the SHA-256 of the token is kept.
+CREATE TABLE IF NOT EXISTS org_invitations (
+    id          BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    org_id      BIGINT       NOT NULL,
+    email       VARCHAR(254) NOT NULL,
+    role        VARCHAR(8)   NOT NULL,
+    token_hash  CHAR(64)     NOT NULL,
+    invited_by  BIGINT       NULL,
+    expires_at  BIGINT       NOT NULL,
+    accepted_at BIGINT       NULL,
+    created_at  BIGINT       NOT NULL,
+    UNIQUE KEY uq_invite_token (token_hash),
+    KEY idx_invite_org (org_id, accepted_at),
+    CONSTRAINT fk_invite_org FOREIGN KEY (org_id) REFERENCES organizations (id) ON DELETE CASCADE,
+    CONSTRAINT fk_invite_by FOREIGN KEY (invited_by) REFERENCES users (id) ON DELETE SET NULL,
+    CONSTRAINT ck_invite_role CHECK (role IN ('admin', 'member'))
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci;

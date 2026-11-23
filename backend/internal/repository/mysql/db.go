@@ -119,8 +119,50 @@ func applySchema(db *sql.DB) error {
 	if err := ApplySchema(db, schema); err != nil {
 		return err
 	}
-	return Migrate(db, migrations)
+	if err := Migrate(db, migrations); err != nil {
+		return err
+	}
+	return backfillPersonalOrgs(db)
 }
+
+// backfillPersonalOrgs gives every user account that has no workspace yet its
+// personal one, so databases from before organizations existed keep working.
+// It only inserts; a second run finds nothing to do.
+func backfillPersonalOrgs(db *sql.DB) error {
+	rows, err := db.Query(`SELECT u.id, u.name FROM users u
+		WHERE u.role = 'user' AND NOT EXISTS (SELECT 1 FROM org_members m WHERE m.user_id = u.id)`)
+	if err != nil {
+		return err
+	}
+	type pending struct {
+		id   int64
+		name string
+	}
+	var todo []pending
+	for rows.Next() {
+		var p pending
+		if err := rows.Scan(&p.id, &p.name); err != nil {
+			rows.Close()
+			return err
+		}
+		todo = append(todo, p)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	repo := NewOrgRepo(db)
+	for _, p := range todo {
+		o := &domain.Org{Name: PersonalOrgName(p.name), Personal: true, OwnerID: p.id}
+		if err := repo.Create(context.Background(), o); err != nil {
+			return fmt.Errorf("backfill workspace for user %d: %w", p.id, err)
+		}
+	}
+	return nil
+}
+
+// PersonalOrgName is the name of a user's personal workspace.
+func PersonalOrgName(userName string) string { return "Pribadi" }
 
 // ApplySchema runs CREATE ... IF NOT EXISTS statements; modules call it with
 // their own schema after the core one.

@@ -33,19 +33,25 @@ type NotificationSource interface {
 type NotificationService struct {
 	repo    domain.NotificationRepository
 	users   domain.UserRepository
+	orgs    OrgMembers
 	clock   domain.Clock
 	sources []NotificationSource
 
-	queue   chan int64
+	queue   chan int64 // workspace ids
 	mu      sync.Mutex
-	pending map[int64]bool // users already queued, so bursts of writes coalesce
+	pending map[int64]bool // workspaces already queued, so bursts of writes coalesce
 	workers int
 	runMu   sync.Mutex // one sweep at a time
 }
 
-func NewNotificationService(r domain.NotificationRepository, u domain.UserRepository, clock domain.Clock) *NotificationService {
+// OrgMembers lists who belongs to a workspace.
+type OrgMembers interface {
+	MemberIDs(ctx context.Context, orgID int64) ([]int64, error)
+}
+
+func NewNotificationService(r domain.NotificationRepository, u domain.UserRepository, o OrgMembers, clock domain.Clock) *NotificationService {
 	return &NotificationService{
-		repo: r, users: u, clock: clock,
+		repo: r, users: u, orgs: o, clock: clock,
 		queue: make(chan int64, 1024), pending: map[int64]bool{}, workers: 4,
 	}
 }
@@ -53,17 +59,18 @@ func NewNotificationService(r domain.NotificationRepository, u domain.UserReposi
 // AddSource registers a module's notifications (call before serving).
 func (s *NotificationService) AddSource(src NotificationSource) { s.sources = append(s.sources, src) }
 
-// Changed implements domain.ChangeNotifier. It never blocks a request: when
-// the queue is full the check is skipped and the next sweep catches up.
-func (s *NotificationService) Changed(userID int64) {
+// Changed implements domain.ChangeNotifier: data of a workspace changed, so
+// every member gets re-checked. It never blocks a request: when the queue is
+// full the check is skipped and the next sweep catches up.
+func (s *NotificationService) Changed(orgID int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.pending[userID] {
+	if s.pending[orgID] {
 		return
 	}
 	select {
-	case s.queue <- userID:
-		s.pending[userID] = true
+	case s.queue <- orgID:
+		s.pending[orgID] = true
 	default:
 	}
 }
@@ -74,12 +81,18 @@ func (s *NotificationService) RunWorker(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case uid := <-s.queue:
+		case orgID := <-s.queue:
 			s.mu.Lock()
-			delete(s.pending, uid)
+			delete(s.pending, orgID)
 			s.mu.Unlock()
-			if _, err := s.Evaluate(ctx, uid, false); err != nil && ctx.Err() == nil {
-				log.Printf("notifications: user %d: %v", uid, err)
+			ids, err := s.orgs.MemberIDs(ctx, orgID)
+			if err != nil && ctx.Err() == nil {
+				log.Printf("notifications: org %d members: %v", orgID, err)
+			}
+			for _, uid := range ids {
+				if _, err := s.Evaluate(ctx, uid, false); err != nil && ctx.Err() == nil {
+					log.Printf("notifications: user %d: %v", uid, err)
+				}
 			}
 		}
 	}

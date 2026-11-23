@@ -84,3 +84,6 @@ func (s *Handlers) Mount(mux *http.ServeMux, g core.Guards) {
 	mux.HandleFunc("GET /api/reports/monthly", g.Read(s.monthlyReport))
 	mux.HandleFunc("GET /api/reports/monthly.pdf", g.Read(s.monthlyReportPDF))
 }
+
+// orgID is the workspace the request acts in (set by the Read/Write guards).
+func orgID(r *http.Request) int64 { return core.OrgFrom(r.Context()).ID }

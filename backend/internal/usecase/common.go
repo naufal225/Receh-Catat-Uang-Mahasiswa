@@ -32,30 +32,24 @@ var (
 	formatRp   = kit.FormatRp
 )
 
-// UserHooks lets modules prepare a new account (e.g. starter categories).
-// Creation is all-or-nothing: if a hook fails, the user is removed again.
-type UserHooks struct {
-	fns []func(ctx context.Context, userID int64) error
-}
+// UserHooks creates accounts: the user plus their personal workspace (which
+// runs the modules' OnOrgCreated hooks). All or nothing: if the workspace
+// cannot be prepared, the user is removed again.
+type UserHooks struct{ orgs *OrgService }
 
-// OnUserCreated registers a hook; call it before serving.
-func (h *UserHooks) OnUserCreated(fn func(ctx context.Context, userID int64) error) {
-	h.fns = append(h.fns, fn)
-}
+func NewUserHooks(o *OrgService) *UserHooks { return &UserHooks{orgs: o} }
 
-// CreateUser inserts u and runs every hook for it.
+// CreateUser inserts u and, for user accounts, their personal workspace.
 func (h *UserHooks) CreateUser(ctx context.Context, users domain.UserRepository, u *domain.User) error {
 	if err := users.Create(ctx, u); err != nil {
 		return err
 	}
-	if h == nil {
+	if h == nil || u.Role != domain.RoleUser {
 		return nil
 	}
-	for _, fn := range h.fns {
-		if err := fn(ctx, u.ID); err != nil {
-			_ = users.Delete(context.WithoutCancel(ctx), u.ID)
-			return err
-		}
+	if err := h.orgs.CreatePersonal(ctx, u); err != nil {
+		_ = users.Delete(context.WithoutCancel(ctx), u.ID)
+		return err
 	}
 	return nil
 }

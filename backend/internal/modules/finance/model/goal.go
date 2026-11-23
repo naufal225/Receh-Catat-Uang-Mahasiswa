@@ -14,7 +14,7 @@ import (
 //   - otherwise: the sum of manual contributions (a virtual piggy bank).
 type Goal struct {
 	ID           int64      `json:"id"`
-	UserID       int64      `json:"-"`
+	OrgID        int64      `json:"-"`
 	Name         string     `json:"name"`
 	TargetAmount int64      `json:"targetAmount"`
 	Deadline     *string    `json:"deadline"` // YYYY-MM-DD
@@ -87,12 +87,12 @@ type GoalContribution struct {
 type GoalRepository interface {
 	Create(ctx context.Context, g *Goal) error
 	Update(ctx context.Context, g *Goal) error
-	Delete(ctx context.Context, userID, id int64) (bool, error)
-	ByID(ctx context.Context, userID, id int64) (*Goal, error)
+	Delete(ctx context.Context, orgID, id int64) (bool, error)
+	ByID(ctx context.Context, orgID, id int64) (*Goal, error)
 	// List returns active goals (or all, archived included) with sums filled.
-	List(ctx context.Context, userID int64, includeArchived bool) ([]Goal, error)
-	CountActive(ctx context.Context, userID int64) (int, error)
-	SetArchived(ctx context.Context, userID, id int64, at *time.Time) (bool, error)
+	List(ctx context.Context, orgID int64, includeArchived bool) ([]Goal, error)
+	CountActive(ctx context.Context, orgID int64) (int, error)
+	SetArchived(ctx context.Context, orgID, id int64, at *time.Time) (bool, error)
 	AddContribution(ctx context.Context, c *GoalContribution) error
 	Contributions(ctx context.Context, goalID int64) ([]GoalContribution, error)
 	DeleteContribution(ctx context.Context, goalID, id int64) (bool, error)

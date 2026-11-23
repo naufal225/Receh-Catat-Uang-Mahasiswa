@@ -16,8 +16,8 @@ var errCategoryName = domain.Conflict("CATEGORY_EXISTS", "Kategori dengan nama i
 
 func (r *CategoryRepo) Create(ctx context.Context, c *model.Category) error {
 	res, err := r.db.ExecContext(ctx,
-		`INSERT INTO categories (user_id, name, type, color) VALUES (?, ?, ?, ?)`,
-		c.UserID, c.Name, c.Type, c.Color)
+		`INSERT INTO categories (org_id, name, type, color) VALUES (?, ?, ?, ?)`,
+		c.OrgID, c.Name, c.Type, c.Color)
 	if isUnique(err) {
 		return errCategoryName
 	}
@@ -28,9 +28,9 @@ func (r *CategoryRepo) Create(ctx context.Context, c *model.Category) error {
 	return err
 }
 
-func (r *CategoryRepo) List(ctx context.Context, userID int64) ([]model.Category, error) {
+func (r *CategoryRepo) List(ctx context.Context, orgID int64) ([]model.Category, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, user_id, name, type, color FROM categories WHERE user_id = ? ORDER BY type, id`, userID)
+		`SELECT id, org_id, name, type, color FROM categories WHERE org_id = ? ORDER BY type, id`, orgID)
 	if err != nil {
 		return nil, err
 	}
@@ -38,7 +38,7 @@ func (r *CategoryRepo) List(ctx context.Context, userID int64) ([]model.Category
 	out := []model.Category{}
 	for rows.Next() {
 		var c model.Category
-		if err := rows.Scan(&c.ID, &c.UserID, &c.Name, &c.Type, &c.Color); err != nil {
+		if err := rows.Scan(&c.ID, &c.OrgID, &c.Name, &c.Type, &c.Color); err != nil {
 			return nil, err
 		}
 		out = append(out, c)
@@ -46,11 +46,11 @@ func (r *CategoryRepo) List(ctx context.Context, userID int64) ([]model.Category
 	return out, rows.Err()
 }
 
-func (r *CategoryRepo) ByID(ctx context.Context, userID, id int64) (*model.Category, error) {
+func (r *CategoryRepo) ByID(ctx context.Context, orgID, id int64) (*model.Category, error) {
 	var c model.Category
 	err := r.db.QueryRowContext(ctx,
-		`SELECT id, user_id, name, type, color FROM categories WHERE id = ? AND user_id = ?`, id, userID).
-		Scan(&c.ID, &c.UserID, &c.Name, &c.Type, &c.Color)
+		`SELECT id, org_id, name, type, color FROM categories WHERE id = ? AND org_id = ?`, id, orgID).
+		Scan(&c.ID, &c.OrgID, &c.Name, &c.Type, &c.Color)
 	if err != nil {
 		return nil, mapNoRows(err)
 	}
@@ -58,11 +58,11 @@ func (r *CategoryRepo) ByID(ctx context.Context, userID, id int64) (*model.Categ
 }
 
 // ByName matches case-insensitively through the table collation.
-func (r *CategoryRepo) ByName(ctx context.Context, userID int64, t model.TxType, name string) (*model.Category, error) {
+func (r *CategoryRepo) ByName(ctx context.Context, orgID int64, t model.TxType, name string) (*model.Category, error) {
 	var c model.Category
 	err := r.db.QueryRowContext(ctx,
-		`SELECT id, user_id, name, type, color FROM categories WHERE user_id = ? AND type = ? AND name = ?`, userID, t, name).
-		Scan(&c.ID, &c.UserID, &c.Name, &c.Type, &c.Color)
+		`SELECT id, org_id, name, type, color FROM categories WHERE org_id = ? AND type = ? AND name = ?`, orgID, t, name).
+		Scan(&c.ID, &c.OrgID, &c.Name, &c.Type, &c.Color)
 	if err != nil {
 		return nil, mapNoRows(err)
 	}
@@ -71,7 +71,7 @@ func (r *CategoryRepo) ByName(ctx context.Context, userID int64, t model.TxType,
 
 func (r *CategoryRepo) Update(ctx context.Context, c *model.Category) error {
 	_, err := r.db.ExecContext(ctx,
-		`UPDATE categories SET name = ?, color = ? WHERE id = ? AND user_id = ?`, c.Name, c.Color, c.ID, c.UserID)
+		`UPDATE categories SET name = ?, color = ? WHERE id = ? AND org_id = ?`, c.Name, c.Color, c.ID, c.OrgID)
 	if isUnique(err) {
 		return errCategoryName
 	}
@@ -92,12 +92,12 @@ func (r *CategoryRepo) Delete(ctx context.Context, id int64) error {
 }
 
 // CreateDefaults gives a new account its starter categories in one commit.
-func (r *CategoryRepo) CreateDefaults(ctx context.Context, userID int64, defaults []model.Category) error {
+func (r *CategoryRepo) CreateDefaults(ctx context.Context, orgID int64, defaults []model.Category) error {
 	return inTx(ctx, r.db, func(tx *sql.Tx) error {
 		for _, c := range defaults {
 			if _, err := tx.ExecContext(ctx,
-				`INSERT INTO categories (user_id, name, type, color) VALUES (?, ?, ?, ?)`,
-				userID, c.Name, c.Type, c.Color); err != nil {
+				`INSERT INTO categories (org_id, name, type, color) VALUES (?, ?, ?, ?)`,
+				orgID, c.Name, c.Type, c.Color); err != nil {
 				return err
 			}
 		}

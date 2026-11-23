@@ -64,18 +64,18 @@ func (m *Module) Init(h *modules.Host) error {
 	}
 
 	h.Membership.AddLimits(Limits...)
-	h.Membership.AddUsageCounter(func(ctx context.Context, userID int64, u domain.Usage) error {
-		ws, err := wallets.List(ctx, userID, false)
+	h.Membership.AddUsageCounter(func(ctx context.Context, orgID int64, u domain.Usage) error {
+		ws, err := wallets.List(ctx, orgID, false)
 		u[service.LimitWallets] = len(ws)
 		return err
 	})
 	h.Membership.AddUsageCounter(budgets.Count)
 	h.Membership.AddUsageCounter(goals.Count)
 
-	h.Notifications.AddSource(service.NewNotifications(wallets, recurring, txs, budgets, goals, h.Clock, h.AppName))
+	h.Notifications.AddSource(service.NewNotifications(wallets, recurring, txs, budgets, goals, h.Orgs, h.Clock, h.AppName))
 
-	h.Users.OnUserCreated(func(ctx context.Context, userID int64) error {
-		return categories.CreateDefaults(ctx, userID, service.DefaultCategories())
+	h.Orgs.OnOrgCreated(func(ctx context.Context, orgID int64) error {
+		return categories.CreateDefaults(ctx, orgID, service.DefaultCategories())
 	})
 
 	h.Server.Mount(api.New(m.Services).Mount)

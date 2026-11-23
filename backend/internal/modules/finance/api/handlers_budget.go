@@ -8,7 +8,7 @@ import (
 )
 
 func (s *Handlers) listBudgets(w http.ResponseWriter, r *http.Request, u *domain.User, _ *domain.Session) {
-	m, err := s.svc.Budgets.Month(r.Context(), u.ID, r.URL.Query().Get("month"))
+	m, err := s.svc.Budgets.Month(r.Context(), orgID(r), r.URL.Query().Get("month"))
 	if err != nil {
 		writeError(w, err)
 		return
@@ -21,7 +21,7 @@ func (s *Handlers) createBudget(w http.ResponseWriter, r *http.Request, u *domai
 	if !readJSON(w, r, &in) {
 		return
 	}
-	b, err := s.svc.Budgets.Create(r.Context(), u.ID, in)
+	b, err := s.svc.Budgets.Create(r.Context(), orgID(r), in)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -40,7 +40,7 @@ func (s *Handlers) updateBudget(w http.ResponseWriter, r *http.Request, u *domai
 	if !readJSON(w, r, &in) {
 		return
 	}
-	b, err := s.svc.Budgets.Update(r.Context(), u.ID, id, in.Amount)
+	b, err := s.svc.Budgets.Update(r.Context(), orgID(r), id, in.Amount)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -53,7 +53,7 @@ func (s *Handlers) deleteBudget(w http.ResponseWriter, r *http.Request, u *domai
 	if !ok {
 		return
 	}
-	if err := s.svc.Budgets.Delete(r.Context(), u.ID, id); err != nil {
+	if err := s.svc.Budgets.Delete(r.Context(), orgID(r), id); err != nil {
 		writeError(w, err)
 		return
 	}

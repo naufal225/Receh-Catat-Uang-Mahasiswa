@@ -2534,3 +2534,158 @@ dialog.modal[open] {
   padding-bottom: 4px;
   font-size: 13px;
 }
+
+/* ---------- Workspaces (organizations) ---------- */
+.org-switch {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin-bottom: 14px;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-2);
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.org-switch:hover {
+  border-color: var(--line-strong);
+  background: var(--surface-3);
+}
+.org-switch-text {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  line-height: 1.25;
+}
+.org-switch-text strong,
+.org-switch-text small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.org-switch-text small {
+  color: var(--muted);
+  font-size: 12px;
+}
+.org-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 34vw;
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.org-chip strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 650;
+}
+.org-list {
+  display: grid;
+  gap: 4px;
+  margin: 0 0 18px;
+  padding: 0;
+  list-style: none;
+}
+.org-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.org-row:hover,
+.org-row[aria-current='true'] {
+  background: var(--surface-2);
+}
+.org-row strong,
+.org-row small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.org-row small {
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.org-create {
+  display: grid;
+  gap: 12px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+.invite-list {
+  display: grid;
+  gap: 2px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.invite-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+.invite-list li:last-child {
+  border-bottom: 0;
+}
+.invite-list small {
+  display: block;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.invite-link {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+.invite-link p {
+  margin: 0;
+  font-size: 14px;
+}
+.invite-link-row {
+  display: flex;
+  gap: 8px;
+}
+.invite-link-row .input {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+.danger-zone {
+  border-color: color-mix(in srgb, var(--danger) 35%, var(--line));
+}
+@media (max-width: 960px) {
+  .mobile-top {
+    gap: 8px;
+  }
+  .mobile-top .org-chip {
+    margin-left: auto;
+  }
+}

@@ -82,6 +82,9 @@ func (e *Entitlement) ActiveAt(t time.Time) bool {
 
 // Membership is what the app tells a user about their plan.
 type Membership struct {
+	// OrgID is the workspace described; IsOwner tells whether the viewer pays for it.
+	OrgID          int64             `json:"orgId"`
+	IsOwner        bool              `json:"isOwner"`
 	Plan           Plan              `json:"plan"`
 	BillingEnabled bool              `json:"billingEnabled"`
 	Source         EntitlementSource `json:"source,omitempty"`

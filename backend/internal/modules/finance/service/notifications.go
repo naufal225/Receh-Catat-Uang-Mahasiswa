@@ -32,13 +32,19 @@ type Notifications struct {
 	txs       model.TransactionRepository
 	budgets   *BudgetService
 	goals     *GoalService
+	orgs      OrgLister
 	clock     domain.Clock
 	appName   string
 }
 
+// OrgLister lists the workspaces a user belongs to.
+type OrgLister interface {
+	List(ctx context.Context, userID int64) ([]domain.OrgMembership, error)
+}
+
 func NewNotifications(w model.WalletRepository, r model.RecurringRepository, t model.TransactionRepository,
-	b *BudgetService, g *GoalService, clock domain.Clock, appName string) *Notifications {
-	return &Notifications{wallets: w, recurring: r, txs: t, budgets: b, goals: g, clock: clock, appName: appName}
+	b *BudgetService, g *GoalService, orgs OrgLister, clock domain.Clock, appName string) *Notifications {
+	return &Notifications{wallets: w, recurring: r, txs: t, budgets: b, goals: g, orgs: orgs, clock: clock, appName: appName}
 }
 
 func lbl(id, en string) map[string]string { return map[string]string{"id": id, "en": en} }
@@ -65,11 +71,35 @@ func (s *Notifications) NotificationSettings() []domain.NotificationSetting {
 	}
 }
 
-// Evaluate reports what the finance module has to say about one user.
-// timeDriven adds reminders that depend on the clock rather than a change.
+// Evaluate reports what the finance module has to say about one user: it
+// looks at every workspace the user belongs to. timeDriven adds reminders
+// that depend on the clock rather than a change.
 func (s *Notifications) Evaluate(ctx context.Context, userID int64, timeDriven bool, prefs domain.NotificationPrefs, emit func(domain.Notification)) error {
+	mine, err := s.orgs.List(ctx, userID)
+	if err != nil {
+		return err
+	}
+	for _, o := range mine {
+		if err := s.evaluateOrg(ctx, userID, o, timeDriven, prefs, emit); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Notifications) evaluateOrg(ctx context.Context, uid int64, o domain.OrgMembership, timeDriven bool, prefs domain.NotificationPrefs, emit func(domain.Notification)) error {
+	orgID := o.ID
+	// A personal workspace keeps the plain ref keys it always had; a team
+	// workspace prefixes them (and the title) so events never collide.
 	add := func(kind domain.NotificationKind, ref, title, body, link string) {
-		emit(domain.Notification{UserID: userID, Kind: kind, RefKey: ref, Title: title, Body: body, Link: link})
+		if !o.Personal {
+			ref = "o" + itoa64(o.ID) + ":" + ref
+			title = "[" + o.Name + "] " + title
+		}
+		if r := []rune(title); len(r) > 120 {
+			title = string(r[:119]) + "…"
+		}
+		emit(domain.Notification{UserID: uid, Kind: kind, RefKey: ref, Title: title, Body: body, Link: link})
 	}
 	lowBalance := prefs.Setting(SettingLowBalance, 50_000)
 	reminderHour := int(prefs.Setting(SettingReminderHour, 20))
@@ -77,7 +107,7 @@ func (s *Notifications) Evaluate(ctx context.Context, userID int64, timeDriven b
 	day, _ := domain.ParseDate(today)
 
 	// Budgets: one notice per budget per month and level.
-	if m, err := s.budgets.Month(ctx, userID, ""); err != nil {
+	if m, err := s.budgets.Month(ctx, orgID, ""); err != nil {
 		return err
 	} else {
 		for _, b := range m.Items {
@@ -95,7 +125,7 @@ func (s *Notifications) Evaluate(ctx context.Context, userID int64, timeDriven b
 
 	// Wallets: at most one low-balance notice per wallet per day, and only for
 	// wallets in use (a brand-new empty wallet is not news).
-	wallets, err := s.wallets.List(ctx, userID, false)
+	wallets, err := s.wallets.List(ctx, orgID, false)
 	if err != nil {
 		return err
 	}
@@ -115,7 +145,7 @@ func (s *Notifications) Evaluate(ctx context.Context, userID int64, timeDriven b
 	}
 
 	// Goals reached: once per goal.
-	goals, err := s.goals.List(ctx, userID, false)
+	goals, err := s.goals.List(ctx, orgID, false)
 	if err != nil {
 		return err
 	}
@@ -127,7 +157,7 @@ func (s *Notifications) Evaluate(ctx context.Context, userID int64, timeDriven b
 	}
 
 	// Recurring bills: failed for lack of money (event), due tomorrow (time).
-	rules, err := s.recurring.List(ctx, userID)
+	rules, err := s.recurring.List(ctx, orgID)
 	if err != nil {
 		return err
 	}
@@ -154,7 +184,7 @@ func (s *Notifications) Evaluate(ctx context.Context, userID int64, timeDriven b
 		now := s.clock.Now()
 		// Evening nudge when nothing was recorded today.
 		if now.Hour() >= reminderHour {
-			days, err := s.txs.SumByDay(ctx, userID, 0, today, today)
+			days, err := s.txs.SumByDay(ctx, orgID, 0, today, today)
 			if err != nil {
 				return err
 			}
@@ -165,7 +195,7 @@ func (s *Notifications) Evaluate(ctx context.Context, userID int64, timeDriven b
 		}
 		// Monday: last week in numbers, compared with the week before.
 		if day.Weekday() == time.Monday {
-			if n, ok, err := s.weekly(ctx, userID, day); err != nil {
+			if n, ok, err := s.weekly(ctx, orgID, day); err != nil {
 				return err
 			} else if ok {
 				add(NotifyWeeklySummary, n.RefKey, n.Title, n.Body, n.Link)
@@ -176,10 +206,10 @@ func (s *Notifications) Evaluate(ctx context.Context, userID int64, timeDriven b
 	return nil
 }
 
-func (s *Notifications) weekly(ctx context.Context, userID int64, monday time.Time) (domain.Notification, bool, error) {
+func (s *Notifications) weekly(ctx context.Context, orgID int64, monday time.Time) (domain.Notification, bool, error) {
 	from, to := monday.AddDate(0, 0, -7), monday.AddDate(0, 0, -1)
 	sum := func(a, b time.Time) (in, out int64, err error) {
-		days, err := s.txs.SumByDay(ctx, userID, 0, a.Format(domain.DateLayout), b.Format(domain.DateLayout))
+		days, err := s.txs.SumByDay(ctx, orgID, 0, a.Format(domain.DateLayout), b.Format(domain.DateLayout))
 		for _, d := range days {
 			in += d.Income
 			out += d.Expense
@@ -195,7 +225,7 @@ func (s *Notifications) weekly(ctx context.Context, userID int64, monday time.Ti
 		return domain.Notification{}, false, err
 	}
 	body := "Masuk " + formatRp(in) + ", keluar " + formatRp(out) + "."
-	cats, err := s.txs.SumByCategory(ctx, userID, 0, model.TxExpense, from.Format(domain.DateLayout), to.Format(domain.DateLayout))
+	cats, err := s.txs.SumByCategory(ctx, orgID, 0, model.TxExpense, from.Format(domain.DateLayout), to.Format(domain.DateLayout))
 	if err != nil {
 		return domain.Notification{}, false, err
 	}

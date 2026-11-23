@@ -4,6 +4,7 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 import { api } from './api';
 import { useAuth } from './auth';
+import { useOrg } from './org';
 import type { Membership } from './types';
 
 interface AppState {
@@ -21,6 +22,8 @@ export const useApp = () => useContext(Ctx);
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
+  const { active } = useOrg();
+  const orgId = active?.id ?? 0;
   const [membership, setMembership] = useState<Membership | null>(null);
   const [version, setVersion] = useState(0);
 
@@ -28,10 +31,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     api.get<Membership>('/membership').then(setMembership).catch(() => {});
   }, []);
 
+  // The plan belongs to the workspace: reload it, and tell every page to
+  // refetch, whenever the active workspace changes.
   useEffect(() => {
     setMembership(null);
+    setVersion((v) => v + 1);
     if (user?.role === 'user') loadMembership();
-  }, [user?.id, user?.role, loadMembership]);
+  }, [user?.id, user?.role, orgId, loadMembership]);
 
   const changed = useCallback(() => {
     setVersion((v) => v + 1);
