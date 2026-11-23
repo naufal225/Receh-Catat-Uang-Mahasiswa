@@ -70,6 +70,9 @@ export interface LimitDef {
 export type Limits = Record<string, number>;
 
 export interface Membership {
+  /** The workspace described, and whether the viewer owns (pays for) it. */
+  orgId: number;
+  isOwner: boolean;
   plan: Plan;
   /** False on the personal edition: everyone is premium and nothing is sold. */
   billingEnabled: boolean;
@@ -148,4 +151,36 @@ export interface NotificationSetting {
 export interface NotificationPrefs {
   kinds: (NotificationKindDef & { enabled: boolean })[];
   settings: (NotificationSetting & { value: number })[];
+}
+
+/* ---------- Workspaces (organizations) ---------- */
+export type OrgRole = 'owner' | 'admin' | 'member';
+
+export interface OrgMembership {
+  id: number;
+  name: string;
+  /** Every account has one personal workspace; it cannot have other members. */
+  personal: boolean;
+  ownerId: number;
+  createdAt: string;
+  role: OrgRole;
+}
+
+export interface OrgPerson {
+  userId: number;
+  name: string;
+  email: string;
+  role: OrgRole;
+  joinedAt: string;
+}
+
+export interface OrgInvite {
+  id: number;
+  orgId: number;
+  orgName?: string;
+  email: string;
+  role: OrgRole;
+  invitedBy: string;
+  expiresAt: string;
+  createdAt: string;
 }

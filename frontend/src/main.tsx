@@ -4,6 +4,7 @@ import App, { ModuleProviders } from './App';
 import { ConfirmProvider, ToastProvider } from './components/ui';
 import { AppProvider } from './lib/app';
 import { AuthProvider } from './lib/auth';
+import { OrgProvider } from './lib/org';
 import './styles.css';
 
 createRoot(document.getElementById('root')!).render(
@@ -11,11 +12,13 @@ createRoot(document.getElementById('root')!).render(
     <ToastProvider>
       <ConfirmProvider>
         <AuthProvider>
-          <AppProvider>
-            <ModuleProviders>
-              <App />
-            </ModuleProviders>
-          </AppProvider>
+          <OrgProvider>
+            <AppProvider>
+              <ModuleProviders>
+                <App />
+              </ModuleProviders>
+            </AppProvider>
+          </OrgProvider>
         </AuthProvider>
       </ConfirmProvider>
     </ToastProvider>

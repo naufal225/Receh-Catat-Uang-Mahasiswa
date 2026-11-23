@@ -120,9 +120,9 @@ func FormatRp(v int64) string {
 	return "Rp " + b.String()
 }
 
-// UserLockKey gives each user a keymutex key that can never equal a row id
+// ScopeLockKey gives each workspace a keymutex key that can never equal a row id
 // (row ids are positive), for "count, then create" checks against a limit.
-func UserLockKey(userID int64) int64 { return -userID }
+func ScopeLockKey(orgID int64) int64 { return -orgID }
 
 // PlanLimits is what modules ask before creating something limited.
 type PlanLimits interface {

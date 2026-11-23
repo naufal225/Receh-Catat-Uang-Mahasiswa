@@ -27,7 +27,7 @@ func NewReportService(t model.TransactionRepository, r ReportRenderer, clock dom
 }
 
 // Monthly gathers one month's numbers, querying in parallel goroutines.
-func (s *ReportService) Monthly(ctx context.Context, u *domain.User, month string) (*model.MonthlyReport, error) {
+func (s *ReportService) Monthly(ctx context.Context, orgID int64, owner, month string) (*model.MonthlyReport, error) {
 	first, err := time.Parse("2006-01", month)
 	if err != nil {
 		return nil, domain.Invalid("month", "Pilih bulan laporan.")
@@ -36,20 +36,20 @@ func (s *ReportService) Monthly(ctx context.Context, u *domain.User, month strin
 	to := first.AddDate(0, 1, -1).Format(domain.DateLayout)
 
 	rep := &model.MonthlyReport{
-		Month: month, Owner: u.Name, GeneratedAt: s.clock.Now(),
+		Month: month, Owner: owner, GeneratedAt: s.clock.Now(),
 		Title: monthsLong[first.Month()-1] + " " + strconv.Itoa(first.Year()),
 	}
 	err = parallel(
-		func() (e error) { rep.Wallets, e = s.txs.WalletSummaries(ctx, u.ID, from, to); return },
+		func() (e error) { rep.Wallets, e = s.txs.WalletSummaries(ctx, orgID, from, to); return },
 		func() (e error) {
-			rep.ExpenseSlices, e = s.txs.SumByCategory(ctx, u.ID, 0, model.TxExpense, from, to)
+			rep.ExpenseSlices, e = s.txs.SumByCategory(ctx, orgID, 0, model.TxExpense, from, to)
 			return
 		},
 		func() (e error) {
-			rep.IncomeSlices, e = s.txs.SumByCategory(ctx, u.ID, 0, model.TxIncome, from, to)
+			rep.IncomeSlices, e = s.txs.SumByCategory(ctx, orgID, 0, model.TxIncome, from, to)
 			return
 		},
-		func() (e error) { rep.Transactions, e = s.txs.AllBetween(ctx, u.ID, from, to); return },
+		func() (e error) { rep.Transactions, e = s.txs.AllBetween(ctx, orgID, from, to); return },
 	)
 	if err != nil {
 		return nil, err
@@ -64,8 +64,8 @@ func (s *ReportService) Monthly(ctx context.Context, u *domain.User, month strin
 }
 
 // MonthlyPDF returns the rendered file and a download name.
-func (s *ReportService) MonthlyPDF(ctx context.Context, u *domain.User, month string) ([]byte, string, error) {
-	rep, err := s.Monthly(ctx, u, month)
+func (s *ReportService) MonthlyPDF(ctx context.Context, orgID int64, owner, month string) ([]byte, string, error) {
+	rep, err := s.Monthly(ctx, orgID, owner, month)
 	if err != nil {
 		return nil, "", err
 	}

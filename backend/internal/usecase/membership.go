@@ -23,20 +23,27 @@ type MembershipService struct {
 	promos  domain.PromoRepository
 	users   domain.UserRepository
 	audit   *AuditRecorder
-	clock   domain.Clock
+	// orgs says who owns a workspace: a workspace has the plan of its owner.
+	orgs  OrgOwners
+	clock domain.Clock
 	// Guessing codes is the obvious abuse; a few tries per hour is plenty.
 	redeemLimit *ratelimit.Limiter
 	// Limits and usage counters registered by modules.
 	defs     []domain.LimitDef
-	counters []func(ctx context.Context, userID int64, u domain.Usage) error
+	counters []func(ctx context.Context, orgID int64, u domain.Usage) error
 }
 
 func NewMembershipService(billing bool, e domain.EntitlementRepository, p domain.PromoRepository, u domain.UserRepository,
-	a *AuditRecorder, clock domain.Clock) *MembershipService {
+	o OrgOwners, a *AuditRecorder, clock domain.Clock) *MembershipService {
 	return &MembershipService{
-		billing: billing, ents: e, promos: p, users: u, audit: a, clock: clock,
+		billing: billing, ents: e, promos: p, users: u, orgs: o, audit: a, clock: clock,
 		redeemLimit: ratelimit.New(10, time.Hour),
 	}
+}
+
+// OrgOwners is the part of OrgService membership needs.
+type OrgOwners interface {
+	OwnerOf(ctx context.Context, orgID int64) (int64, error)
 }
 
 func (s *MembershipService) BillingEnabled() bool { return s.billing }
@@ -45,7 +52,7 @@ func (s *MembershipService) BillingEnabled() bool { return s.billing }
 func (s *MembershipService) AddLimits(defs ...domain.LimitDef) { s.defs = append(s.defs, defs...) }
 
 // AddUsageCounter registers how a module counts what a user has, for display.
-func (s *MembershipService) AddUsageCounter(fn func(ctx context.Context, userID int64, u domain.Usage) error) {
+func (s *MembershipService) AddUsageCounter(fn func(ctx context.Context, orgID int64, u domain.Usage) error) {
 	s.counters = append(s.counters, fn)
 }
 
@@ -65,9 +72,14 @@ func (s *MembershipService) Plan(ctx context.Context, userID int64) (domain.Plan
 }
 
 // Limit is what modules call (through kit.PlanLimits) before creating
-// something limited. An unregistered key is unlimited.
-func (s *MembershipService) Limit(ctx context.Context, userID int64, key string) (int, error) {
-	p, _, err := s.Plan(ctx, userID)
+// something limited. A workspace has the plan of its owner. An unregistered
+// key is unlimited.
+func (s *MembershipService) Limit(ctx context.Context, orgID int64, key string) (int, error) {
+	owner, err := s.orgs.OwnerOf(ctx, orgID)
+	if err != nil {
+		return 0, err
+	}
+	p, _, err := s.Plan(ctx, owner)
 	if err != nil {
 		return 0, err
 	}
@@ -77,12 +89,18 @@ func (s *MembershipService) Limit(ctx context.Context, userID int64, key string)
 	return domain.Unlimited, nil
 }
 
-func (s *MembershipService) Get(ctx context.Context, userID int64) (*domain.Membership, error) {
-	plan, ent, err := s.Plan(ctx, userID)
+// Get describes the plan of a workspace as seen by viewerID.
+func (s *MembershipService) Get(ctx context.Context, viewerID, orgID int64) (*domain.Membership, error) {
+	owner, err := s.orgs.OwnerOf(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	plan, ent, err := s.Plan(ctx, owner)
 	if err != nil {
 		return nil, err
 	}
 	m := &domain.Membership{
+		OrgID: orgID, IsOwner: owner == viewerID,
 		Plan: plan, BillingEnabled: s.billing,
 		Limits: domain.LimitsFor(plan, s.defs), FreeLimits: domain.LimitsFor(domain.PlanFree, s.defs),
 		Usage: domain.Usage{}, Defs: append([]domain.LimitDef{}, s.defs...),
@@ -91,7 +109,7 @@ func (s *MembershipService) Get(ctx context.Context, userID int64) (*domain.Memb
 		m.Source, m.EndsAt, m.Note = ent.Source, ent.EndsAt, ent.Note
 	}
 	for _, count := range s.counters {
-		if err := count(ctx, userID, m.Usage); err != nil {
+		if err := count(ctx, orgID, m.Usage); err != nil {
 			return nil, err
 		}
 	}
@@ -104,7 +122,7 @@ var codeRe = regexp.MustCompile(`^[A-Z0-9][A-Z0-9-]{3,31}$`)
 
 func normalizeCode(c string) string { return strings.ToUpper(strings.TrimSpace(c)) }
 
-func (s *MembershipService) Redeem(ctx context.Context, u *domain.User, code string, client domain.ClientInfo) (*domain.Membership, error) {
+func (s *MembershipService) Redeem(ctx context.Context, u *domain.User, orgID int64, code string, client domain.ClientInfo) (*domain.Membership, error) {
 	if !s.billing {
 		return nil, domain.Invalid("code", "Edisi ini sudah membuka semua fitur Premium; kode tidak diperlukan.")
 	}
@@ -128,7 +146,7 @@ func (s *MembershipService) Redeem(ctx context.Context, u *domain.User, code str
 	}
 	s.audit.Record(AuditEntry{UserID: &u.ID, Email: u.Email, Event: domain.EventPromoRedeemed, Client: client,
 		Detail: "Kode " + code + untilText(ent.EndsAt)})
-	return s.Get(ctx, u.ID)
+	return s.Get(ctx, u.ID, orgID)
 }
 
 func untilText(t *time.Time) string {

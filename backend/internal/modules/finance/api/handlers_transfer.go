@@ -12,7 +12,7 @@ func (s *Handlers) getTransfer(w http.ResponseWriter, r *http.Request, u *domain
 	if !ok {
 		return
 	}
-	t, err := s.svc.Transfers.Get(r.Context(), u.ID, id)
+	t, err := s.svc.Transfers.Get(r.Context(), orgID(r), id)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -25,7 +25,7 @@ func (s *Handlers) createTransfer(w http.ResponseWriter, r *http.Request, u *dom
 	if !readJSON(w, r, &in) {
 		return
 	}
-	t, err := s.svc.Transfers.Create(r.Context(), u.ID, in)
+	t, err := s.svc.Transfers.Create(r.Context(), orgID(r), in)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -42,7 +42,7 @@ func (s *Handlers) updateTransfer(w http.ResponseWriter, r *http.Request, u *dom
 	if !readJSON(w, r, &in) {
 		return
 	}
-	t, err := s.svc.Transfers.Update(r.Context(), u.ID, id, in)
+	t, err := s.svc.Transfers.Update(r.Context(), orgID(r), id, in)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -55,7 +55,7 @@ func (s *Handlers) deleteTransfer(w http.ResponseWriter, r *http.Request, u *dom
 	if !ok {
 		return
 	}
-	if err := s.svc.Transfers.Delete(r.Context(), u.ID, id); err != nil {
+	if err := s.svc.Transfers.Delete(r.Context(), orgID(r), id); err != nil {
 		writeError(w, err)
 		return
 	}
@@ -64,7 +64,7 @@ func (s *Handlers) deleteTransfer(w http.ResponseWriter, r *http.Request, u *dom
 
 // transferFee answers the fee to prefill for a route: the one used last time.
 func (s *Handlers) transferFee(w http.ResponseWriter, r *http.Request, u *domain.User, _ *domain.Session) {
-	hint, err := s.svc.Transfers.LastFee(r.Context(), u.ID, queryInt64(r, "from"), queryInt64(r, "to"))
+	hint, err := s.svc.Transfers.LastFee(r.Context(), orgID(r), queryInt64(r, "from"), queryInt64(r, "to"))
 	if err != nil {
 		writeError(w, err)
 		return

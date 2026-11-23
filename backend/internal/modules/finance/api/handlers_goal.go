@@ -9,7 +9,7 @@ import (
 )
 
 func (s *Handlers) listGoals(w http.ResponseWriter, r *http.Request, u *domain.User, _ *domain.Session) {
-	list, err := s.svc.Goals.List(r.Context(), u.ID, r.URL.Query().Get("archived") == "1")
+	list, err := s.svc.Goals.List(r.Context(), orgID(r), r.URL.Query().Get("archived") == "1")
 	if err != nil {
 		writeError(w, err)
 		return
@@ -22,7 +22,7 @@ func (s *Handlers) createGoal(w http.ResponseWriter, r *http.Request, u *domain.
 	if !readJSON(w, r, &in) {
 		return
 	}
-	g, err := s.svc.Goals.Create(r.Context(), u.ID, in)
+	g, err := s.svc.Goals.Create(r.Context(), orgID(r), in)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -39,7 +39,7 @@ func (s *Handlers) updateGoal(w http.ResponseWriter, r *http.Request, u *domain.
 	if !readJSON(w, r, &in) {
 		return
 	}
-	g, err := s.svc.Goals.Update(r.Context(), u.ID, id, in)
+	g, err := s.svc.Goals.Update(r.Context(), orgID(r), id, in)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -52,7 +52,7 @@ func (s *Handlers) deleteGoal(w http.ResponseWriter, r *http.Request, u *domain.
 	if !ok {
 		return
 	}
-	if err := s.svc.Goals.Delete(r.Context(), u.ID, id); err != nil {
+	if err := s.svc.Goals.Delete(r.Context(), orgID(r), id); err != nil {
 		writeError(w, err)
 		return
 	}
@@ -70,7 +70,7 @@ func (s *Handlers) archiveGoal(w http.ResponseWriter, r *http.Request, u *domain
 	if !readJSON(w, r, &in) {
 		return
 	}
-	g, err := s.svc.Goals.SetArchived(r.Context(), u.ID, id, in.Archived)
+	g, err := s.svc.Goals.SetArchived(r.Context(), orgID(r), id, in.Archived)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -83,7 +83,7 @@ func (s *Handlers) goalContributions(w http.ResponseWriter, r *http.Request, u *
 	if !ok {
 		return
 	}
-	list, err := s.svc.Goals.Contributions(r.Context(), u.ID, id)
+	list, err := s.svc.Goals.Contributions(r.Context(), orgID(r), id)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -100,7 +100,7 @@ func (s *Handlers) contribute(w http.ResponseWriter, r *http.Request, u *domain.
 	if !readJSON(w, r, &in) {
 		return
 	}
-	g, err := s.svc.Goals.Contribute(r.Context(), u.ID, id, in)
+	g, err := s.svc.Goals.Contribute(r.Context(), orgID(r), id, in)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -118,7 +118,7 @@ func (s *Handlers) deleteContribution(w http.ResponseWriter, r *http.Request, u 
 		writeError(w, domain.NotFound("Setoran tidak ditemukan."))
 		return
 	}
-	g, err := s.svc.Goals.DeleteContribution(r.Context(), u.ID, id, cid)
+	g, err := s.svc.Goals.DeleteContribution(r.Context(), orgID(r), id, cid)
 	if err != nil {
 		writeError(w, err)
 		return

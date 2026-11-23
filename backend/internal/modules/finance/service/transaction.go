@@ -33,7 +33,7 @@ func NewTransactionService(t model.TransactionRepository, w model.WalletReposito
 	return &TransactionService{txs: t, wallets: w, categories: c, clock: clock, locks: locks, notify: notifier{n}}
 }
 
-func (s *TransactionService) validate(ctx context.Context, userID int64, in *TransactionInput, allowArchivedWallet int64) error {
+func (s *TransactionService) validate(ctx context.Context, orgID int64, in *TransactionInput, allowArchivedWallet int64) error {
 	name, err := cleanName("name", in.Name, 80, "Beri nama kegiatannya, misalnya \"Makan siang\".")
 	if err != nil {
 		return err
@@ -54,7 +54,7 @@ func (s *TransactionService) validate(ctx context.Context, userID int64, in *Tra
 	if on.After(today.AddDate(0, 0, 1)) {
 		return domain.Invalid("occurredOn", "Tanggal tidak boleh di masa depan. Untuk rencana, pakai Transaksi Rutin.")
 	}
-	w, err := s.wallets.ByID(ctx, userID, in.WalletID)
+	w, err := s.wallets.ByID(ctx, orgID, in.WalletID)
 	if err != nil {
 		if e := notFoundOr(err, ""); e != err {
 			return domain.Invalid("walletId", "Pilih dompet.")
@@ -64,7 +64,7 @@ func (s *TransactionService) validate(ctx context.Context, userID int64, in *Tra
 	if w.Archived && w.ID != allowArchivedWallet {
 		return domain.Invalid("walletId", "Dompet ini sudah diarsipkan.")
 	}
-	c, err := s.categories.ByID(ctx, userID, in.CategoryID)
+	c, err := s.categories.ByID(ctx, orgID, in.CategoryID)
 	if err != nil {
 		if e := notFoundOr(err, ""); e != err {
 			return domain.Invalid("categoryId", "Pilih kategori.")
@@ -77,39 +77,39 @@ func (s *TransactionService) validate(ctx context.Context, userID int64, in *Tra
 	return nil
 }
 
-func (s *TransactionService) Create(ctx context.Context, userID int64, in TransactionInput) (*model.Transaction, error) {
-	defer s.notify.changed(userID)
-	if err := s.validate(ctx, userID, &in, 0); err != nil {
+func (s *TransactionService) Create(ctx context.Context, orgID int64, in TransactionInput) (*model.Transaction, error) {
+	defer s.notify.changed(orgID)
+	if err := s.validate(ctx, orgID, &in, 0); err != nil {
 		return nil, err
 	}
 	unlock := s.locks.Lock(in.WalletID)
 	defer unlock()
 	t := &model.Transaction{
-		UserID: userID, WalletID: in.WalletID, CategoryID: in.CategoryID,
+		OrgID: orgID, WalletID: in.WalletID, CategoryID: in.CategoryID,
 		Type: in.Type, Name: in.Name, Amount: in.Amount, OccurredOn: in.OccurredOn,
 	}
 	if err := s.txs.Create(ctx, t); err != nil {
 		return nil, err
 	}
-	return s.txs.ByID(ctx, userID, t.ID)
+	return s.txs.ByID(ctx, orgID, t.ID)
 }
 
-func (s *TransactionService) Update(ctx context.Context, userID, id int64, in TransactionInput) (*model.Transaction, error) {
-	defer s.notify.changed(userID)
-	current, err := s.txs.ByID(ctx, userID, id)
+func (s *TransactionService) Update(ctx context.Context, orgID, id int64, in TransactionInput) (*model.Transaction, error) {
+	defer s.notify.changed(orgID)
+	current, err := s.txs.ByID(ctx, orgID, id)
 	if err != nil {
 		return nil, notFoundOr(err, "Transaksi tidak ditemukan.")
 	}
 	if current.TransferID != nil {
 		return nil, errPartOfTransfer
 	}
-	if err := s.validate(ctx, userID, &in, current.WalletID); err != nil {
+	if err := s.validate(ctx, orgID, &in, current.WalletID); err != nil {
 		return nil, err
 	}
 	unlock := s.locks.Lock(current.WalletID, in.WalletID)
 	defer unlock()
 	// Re-read under the lock: the row may have changed while we waited.
-	old, err := s.txs.ByID(ctx, userID, id)
+	old, err := s.txs.ByID(ctx, orgID, id)
 	if err != nil {
 		return nil, notFoundOr(err, "Transaksi tidak ditemukan.")
 	}
@@ -122,12 +122,12 @@ func (s *TransactionService) Update(ctx context.Context, userID, id int64, in Tr
 	if err := s.txs.Update(ctx, old, &updated); err != nil {
 		return nil, friendlyReversal(err)
 	}
-	return s.txs.ByID(ctx, userID, id)
+	return s.txs.ByID(ctx, orgID, id)
 }
 
-func (s *TransactionService) Delete(ctx context.Context, userID, id int64) error {
-	defer s.notify.changed(userID)
-	current, err := s.txs.ByID(ctx, userID, id)
+func (s *TransactionService) Delete(ctx context.Context, orgID, id int64) error {
+	defer s.notify.changed(orgID)
+	current, err := s.txs.ByID(ctx, orgID, id)
 	if err != nil {
 		return notFoundOr(err, "Transaksi tidak ditemukan.")
 	}
@@ -136,7 +136,7 @@ func (s *TransactionService) Delete(ctx context.Context, userID, id int64) error
 	}
 	unlock := s.locks.Lock(current.WalletID)
 	defer unlock()
-	t, err := s.txs.ByID(ctx, userID, id)
+	t, err := s.txs.ByID(ctx, orgID, id)
 	if err != nil {
 		return notFoundOr(err, "Transaksi tidak ditemukan.")
 	}
@@ -156,6 +156,6 @@ func friendlyReversal(err error) error {
 	return err
 }
 
-func (s *TransactionService) List(ctx context.Context, userID int64, f model.TxFilter) (domain.Page[model.Transaction], error) {
-	return s.txs.List(ctx, userID, f)
+func (s *TransactionService) List(ctx context.Context, orgID int64, f model.TxFilter) (domain.Page[model.Transaction], error) {
+	return s.txs.List(ctx, orgID, f)
 }

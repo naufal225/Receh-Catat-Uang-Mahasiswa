@@ -8,7 +8,7 @@ import (
 )
 
 func (s *Server) membership(w http.ResponseWriter, r *http.Request, u *domain.User, _ *domain.Session) {
-	m, err := s.svc.Membership.Get(r.Context(), u.ID)
+	m, err := s.svc.Membership.Get(r.Context(), u.ID, OrgFrom(r.Context()).ID)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -23,7 +23,7 @@ func (s *Server) redeemCode(w http.ResponseWriter, r *http.Request, u *domain.Us
 	if !readJSON(w, r, &in) {
 		return
 	}
-	m, err := s.svc.Membership.Redeem(r.Context(), u, in.Code, s.clientInfo(r))
+	m, err := s.svc.Membership.Redeem(r.Context(), u, OrgFrom(r.Context()).ID, in.Code, s.clientInfo(r))
 	if err != nil {
 		writeError(w, err)
 		return

@@ -14,13 +14,17 @@ import AdminPromos from './pages/AdminPromos';
 import AdminUsers from './pages/AdminUsers';
 import { Login, Register } from './pages/Auth';
 import Home from './pages/Home';
+import Invite from './pages/Invite';
 import Landing from './pages/Landing';
 import NotificationSettings from './pages/NotificationSettings';
 import Security from './pages/Security';
 import Subscription from './pages/Subscription';
+import Team from './pages/Team';
+import { takeNext } from './lib/next';
 
 const corePages: Record<string, ModulePage> = {
   '/app': { el: Home, title: 'Beranda' },
+  '/app/tim': { el: Team, title: 'Tim' },
   '/app/notifikasi': { el: NotificationSettings, title: 'Notifikasi' },
   '/app/keamanan': { el: Security, title: 'Perangkat & keamanan' },
   '/app/langganan': { el: Subscription, title: 'Langganan' },
@@ -68,7 +72,17 @@ export default function App() {
     document.title = title ? `${title} · ${brand.name}` : `${brand.name} · ${brand.tagline}`;
   }, [title]);
 
+  // A page waiting for sign-in (an invitation link): open it once signed in,
+  // whichever way that happened (password, register or Google).
+  useEffect(() => {
+    if (!ready || !user) return;
+    const next = takeNext();
+    if (next) navigate(next, { replace: true });
+  }, [ready, user]);
+
   if (!ready) return <Splash />;
+
+  if (clean === '/undangan') return <Invite />;
 
   if (clean === '/') return <Landing />;
   if (clean === '/masuk' || clean === '/daftar') {

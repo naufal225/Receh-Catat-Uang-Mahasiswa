@@ -33,11 +33,11 @@ type Module interface {
 type Host struct {
 	DB    *sql.DB
 	Clock domain.Clock
-	// Locks is shared by every path that must serialise per row or per user
-	// (kit.UserLockKey), across modules.
+	// Locks is shared by every path that must serialise per row or per
+	// workspace (kit.ScopeLockKey), across modules.
 	Locks *keymutex.Map
-	// Changes must be told after every write to a user's data: it bumps
-	// Versions (cache keys) and wakes the notification worker.
+	// Changes must be told (with the org id) after every write to a workspace's
+	// data: it bumps Versions (cache keys) and wakes the notification worker.
 	Changes  domain.ChangeNotifier
 	Versions *cache.Versions
 	// Plans answers plan limits registered with Membership.AddLimits.
@@ -45,8 +45,11 @@ type Host struct {
 
 	Membership    *usecase.MembershipService
 	Notifications *usecase.NotificationService
-	Users         *usecase.UserHooks
-	Server        *core.Server
+	// Orgs owns workspaces. Module data belongs to a workspace: key your tables
+	// by org_id and read the id of the request with core.OrgFrom. Use
+	// Orgs.OnOrgCreated to seed a new workspace.
+	Orgs   *usecase.OrgService
+	Server *core.Server
 
 	// AppName is the product name, for reports and messages.
 	AppName string

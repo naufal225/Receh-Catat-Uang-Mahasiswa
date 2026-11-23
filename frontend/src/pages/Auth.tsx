@@ -1,5 +1,6 @@
 // Login and registration. Registration needs only name, email and password:
 // no OTP, no email verification, as specified.
+import { signupPath } from '../modules';
 import { brand } from '../brand';
 import { useState, type FormEvent, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
@@ -132,7 +133,7 @@ export function Register() {
       // in" redirect never sees the new user while still on the old path.
       flushSync(() => {
         setUser(u);
-        navigate('/app/dompet?baru=1', { replace: true });
+        navigate(signupPath, { replace: true });
       });
     } catch (err) {
       const e2 = err as ApiError;

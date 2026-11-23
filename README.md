@@ -150,6 +150,7 @@ backend/
 └─ internal/
    ├─ domain/                      INTI: User, Session, AuditLog, paket (LimitDef/Limits/Usage), notifikasi, error, port
    ├─ usecase/                     PERILAKU INTI (tanpa SQL, tanpa HTTP)
+   │  ├─ org.go                    Workspace: peran, anggota, undangan (token ter-hash), cache peran, audit
    │  ├─ auth.go / oauth.go        Daftar, masuk, sesi, Google (state + PKCE), rate limit
    │  ├─ common.go                 UserHooks (modul menyiapkan akun baru), validasi, RealClock
    │  ├─ membership.go             Paket Gratis/Premium; limit & penghitung pemakaian didaftarkan modul
@@ -186,12 +187,51 @@ menjalankan aplikasi tanpa modul pada database kosong). Tabel modul di database 
   - `h.Membership.AddLimits(domain.LimitDef{Key: "<nama>.items", Free: 5, Premium: domain.Unlimited})`
     dan `AddUsageCounter(...)`; cek di service dengan `kit.CheckLimit` / `kit.RequireFeature` lewat `h.Plans`.
   - `h.Notifications.AddSource(src)` (jenis, pengaturan, dan `Evaluate`; dedup lewat `RefKey`).
-  - `h.Users.OnUserCreated(fn)` untuk data awal akun baru.
+  - `h.Orgs.OnOrgCreated(fn)` untuk data awal tiap workspace baru (pribadi maupun tim).
+  - Kunci tabel modul dengan `org_id` (FK ke `organizations`) dan baca workspace permintaan dengan
+    `core.OrgFrom(r.Context())`; guard `Read`/`Write` memastikan pemanggil anggota workspace itu.
   - `h.Server.Mount(func(mux, g) { mux.HandleFunc("GET /api/<nama>", g.Read(handler)) })`.
   - `h.Background(job)` untuk goroutine yang berjalan selama aplikasi hidup.
   - Setelah menulis data pengguna, panggil `h.Changes.Changed(userID)` (cache & notifikasi ikut segar).
 - Frontend: buat `src/modules/<nama>/index.tsx` bertipe `AppModule` (`pages`, `nav`, opsional
   `Provider`, `Overlay`, `primary`) lalu tambahkan ke `src/modules/index.ts`.
+
+### 3-O. Workspace (organisasi)
+
+Data modul milik **workspace**, bukan pengguna. Setiap akun pengguna otomatis punya satu workspace
+pribadi (tidak bisa diundangi anggota); tim adalah workspace tambahan.
+
+| Peran | Boleh |
+|---|---|
+| owner (tepat satu) | semuanya: hapus tim, pindahkan kepemilikan, ubah peran, memegang langganan |
+| admin | mengundang anggota biasa, mengeluarkan anggota biasa, ganti nama tim |
+| member | memakai data tim (modul menentukan sisanya) |
+
+- **Memilih workspace:** frontend mengirim header `X-Org-Id`. Server memeriksa keanggotaan di setiap
+  permintaan, jadi header hanya pilihan, bukan izin. Tanpa header = workspace pribadi.
+  Guard `Read`/`Write` untuk modul sudah memasangnya; ambil dengan `core.OrgFrom(r.Context())`.
+- **Paket:** workspace memakai paket **owner**-nya (`MembershipService.Limit(orgID, key)`). Anggota
+  non-owner melihat batas milik owner. Langganan per workspace datang di Fase C.
+- **Undangan:** per email, berlaku 7 hari, sekali pakai. Hanya hash token yang disimpan; link
+  (`/undangan?t=…`) tampil sekali ke pengundang. Hanya akun dengan email yang diundang yang bisa
+  membukanya (selain itu "tidak ditemukan"). Penerimaan diserialkan dengan `SELECT … FOR UPDATE`,
+  jadi dua orang yang membuka link yang sama tidak bisa sama-sama masuk. Pengiriman email datang di Fase D.
+- **Notifikasi tim:** semua anggota mendapat notifikasi data tim, judulnya diawali `[Nama Tim]`.
+- **Cache peran:** peran dicache 30 detik per (workspace, pengguna) dan dihapus seketika saat peran
+  berubah atau anggota keluar, jadi akses hilang langsung.
+
+**Upgrade database lama (aman untuk data asli).** Saat aplikasi pertama kali berjalan dengan skema ini:
+1. Setiap akun yang belum punya workspace dibuatkan workspace pribadi (hanya menambah baris).
+2. Tabel modul (dompet, kategori, transaksi, dst.) mendapat kolom `org_id`, diisi dari workspace
+   pribadi pemilik lamanya; kolom `user_id` **tidak dihapus**, hanya diganti nama menjadi
+   `legacy_user_id` (boleh NULL, tanpa constraint) sebagai catatan.
+3. Setiap langkah memeriksa skema dulu, jadi migrasi yang terputus melanjutkan di start berikutnya
+   dan start kedua tidak mengubah apa pun. Bila ada baris yang pemiliknya tak punya workspace,
+   migrasi berhenti dengan pesan jelas (tanpa menghapus apa pun).
+
+DDL MySQL tidak bisa di-rollback, jadi **backup dulu** sebelum start pertama pada data nyata:
+`mysqldump -uroot receh > receh_backup.sql`. Tes `TestUpgradeFromBeforeWorkspacesKeepsEveryRow`
+menjalankan seluruh jalur ini pada skema lama (fixture di `backend/internal/app/testdata`).
 
 ### Alur satu permintaan: "catat pengeluaran Rp 25.000 dari GoPay"
 
@@ -342,12 +382,15 @@ frontend/src/
 ├─ App.tsx                 Route inti + halaman dari semua modul, guard role
 ├─ brand.ts                Nama produk, tagline, prefix localStorage (warna: token di styles.css)
 ├─ styles.css              DESIGN SYSTEM: token warna terang/gelap, komponen, layout responsif
-├─ lib/                    api, auth, app (membership, version, changed, readOnly, limitOf/hasFeature),
+├─ lib/                    api (header X-Org-Id), auth, app (membership, version, changed, readOnly, limitOf/hasFeature),
+│                          org (daftar workspace + yang aktif), next (halaman tujuan setelah masuk),
 │                          router, hooks (useFetch SWR), format, types (tipe inti)
 ├─ components/             AppShell (nav & tombol utama dari modul), Notifications (ikon/label dari server),
+│                          OrgSwitcher (pindah workspace / buat tim),
 │                          GoogleButton, ui, Icon
 ├─ pages/                  Inti: Landing, Auth, Home (bila tak ada modul), Security, Subscription,
-│                          NotificationSettings, AdminUsers, AdminAudit, AdminPromos
+│                          NotificationSettings, Team (anggota, undangan), Invite (terima undangan),
+│                          AdminUsers, AdminAudit, AdminPromos
 └─ modules/
    ├─ types.ts             Kontrak AppModule
    ├─ index.ts             Daftar modul yang dipasang

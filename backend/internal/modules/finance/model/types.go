@@ -27,7 +27,7 @@ func (t WalletType) Valid() bool {
 // Amounts are whole rupiah so no floating point ever touches a balance.
 type Wallet struct {
 	ID       int64      `json:"id"`
-	UserID   int64      `json:"-"`
+	OrgID    int64      `json:"-"`
 	Name     string     `json:"name"`
 	Type     WalletType `json:"type"`
 	Color    string     `json:"color"`
@@ -63,11 +63,11 @@ func (t TxType) Delta(amount int64) int64 {
 }
 
 type Category struct {
-	ID     int64  `json:"id"`
-	UserID int64  `json:"-"`
-	Name   string `json:"name"`
-	Type   TxType `json:"type"`
-	Color  string `json:"color"`
+	ID    int64  `json:"id"`
+	OrgID int64  `json:"-"`
+	Name  string `json:"name"`
+	Type  TxType `json:"type"`
+	Color string `json:"color"`
 }
 
 // Transaction is one income or expense. OccurredOn is a calendar date
@@ -75,7 +75,7 @@ type Category struct {
 // monthly grouping free of timezone arithmetic.
 type Transaction struct {
 	ID            int64  `json:"id"`
-	UserID        int64  `json:"-"`
+	OrgID         int64  `json:"-"`
 	WalletID      int64  `json:"walletId"`
 	WalletName    string `json:"walletName"`
 	WalletColor   string `json:"walletColor"`
@@ -104,7 +104,7 @@ type Transaction struct {
 // Rp101.000 from BCA) and is recorded as an expense in the fee category.
 type Transfer struct {
 	ID             int64     `json:"id"`
-	UserID         int64     `json:"-"`
+	OrgID          int64     `json:"-"`
 	FromWalletID   int64     `json:"fromWalletId"`
 	FromWalletName string    `json:"fromWalletName"`
 	ToWalletID     int64     `json:"toWalletId"`
@@ -153,7 +153,7 @@ func (f Frequency) PerMonth(amount int64) int64 {
 // to the 31st after passing through a shorter month.
 type Recurring struct {
 	ID            int64     `json:"id"`
-	UserID        int64     `json:"-"`
+	OrgID         int64     `json:"-"`
 	WalletID      int64     `json:"walletId"`
 	WalletName    string    `json:"walletName"`
 	WalletColor   string    `json:"walletColor"`
@@ -249,8 +249,8 @@ type MonthlyReport struct {
 
 type WalletRepository interface {
 	Create(ctx context.Context, w *Wallet) error
-	List(ctx context.Context, userID int64, includeArchived bool) ([]Wallet, error)
-	ByID(ctx context.Context, userID, id int64) (*Wallet, error)
+	List(ctx context.Context, orgID int64, includeArchived bool) ([]Wallet, error)
+	ByID(ctx context.Context, orgID, id int64) (*Wallet, error)
 	Update(ctx context.Context, w *Wallet) error
 	HasTransactions(ctx context.Context, id int64) (bool, error)
 	Delete(ctx context.Context, id int64) error
@@ -259,9 +259,9 @@ type WalletRepository interface {
 
 type CategoryRepository interface {
 	Create(ctx context.Context, c *Category) error
-	List(ctx context.Context, userID int64) ([]Category, error)
-	ByID(ctx context.Context, userID, id int64) (*Category, error)
-	ByName(ctx context.Context, userID int64, t TxType, name string) (*Category, error)
+	List(ctx context.Context, orgID int64) ([]Category, error)
+	ByID(ctx context.Context, orgID, id int64) (*Category, error)
+	ByName(ctx context.Context, orgID int64, t TxType, name string) (*Category, error)
 	Update(ctx context.Context, c *Category) error
 	InUse(ctx context.Context, id int64) (bool, error)
 	Delete(ctx context.Context, id int64) error
@@ -274,13 +274,13 @@ type TransactionRepository interface {
 	Create(ctx context.Context, t *Transaction) error
 	Update(ctx context.Context, old, updated *Transaction) error
 	Delete(ctx context.Context, t *Transaction) error
-	ByID(ctx context.Context, userID, id int64) (*Transaction, error)
-	List(ctx context.Context, userID int64, f TxFilter) (domain.Page[Transaction], error)
-	Latest(ctx context.Context, userID, walletID int64, limit int) ([]Transaction, error)
-	AllBetween(ctx context.Context, userID int64, from, to string) ([]Transaction, error)
-	SumByDay(ctx context.Context, userID, walletID int64, from, to string) ([]DaySum, error)
-	SumByCategory(ctx context.Context, userID, walletID int64, t TxType, from, to string) ([]CategorySlice, error)
-	WalletSummaries(ctx context.Context, userID int64, from, to string) ([]WalletSummary, error)
+	ByID(ctx context.Context, orgID, id int64) (*Transaction, error)
+	List(ctx context.Context, orgID int64, f TxFilter) (domain.Page[Transaction], error)
+	Latest(ctx context.Context, orgID, walletID int64, limit int) ([]Transaction, error)
+	AllBetween(ctx context.Context, orgID int64, from, to string) ([]Transaction, error)
+	SumByDay(ctx context.Context, orgID, walletID int64, from, to string) ([]DaySum, error)
+	SumByCategory(ctx context.Context, orgID, walletID int64, t TxType, from, to string) ([]CategorySlice, error)
+	WalletSummaries(ctx context.Context, orgID int64, from, to string) ([]WalletSummary, error)
 }
 
 // DaySum is the income and expense total of one calendar date.
@@ -293,9 +293,9 @@ type DaySum struct {
 type RecurringRepository interface {
 	Create(ctx context.Context, r *Recurring) error
 	Update(ctx context.Context, r *Recurring) error
-	ByID(ctx context.Context, userID, id int64) (*Recurring, error)
-	List(ctx context.Context, userID int64) ([]Recurring, error)
-	Delete(ctx context.Context, userID, id int64) (bool, error)
+	ByID(ctx context.Context, orgID, id int64) (*Recurring, error)
+	List(ctx context.Context, orgID int64) ([]Recurring, error)
+	Delete(ctx context.Context, orgID, id int64) (bool, error)
 	// Due lists active rules of active users whose NextDue is on or before day.
 	Due(ctx context.Context, day string) ([]Recurring, error)
 	// PostOccurrence inserts the transaction and advances NextDue in one commit.
@@ -312,10 +312,10 @@ type TransferRepository interface {
 	Create(ctx context.Context, t *Transfer) error
 	Update(ctx context.Context, old, updated *Transfer) error
 	Delete(ctx context.Context, t *Transfer) error
-	ByID(ctx context.Context, userID, id int64) (*Transfer, error)
+	ByID(ctx context.Context, orgID, id int64) (*Transfer, error)
 	// LastFee is the fee of the most recent transfer on this route, so a fee
 	// that depends on the bank pair is remembered without a settings table.
-	LastFee(ctx context.Context, userID, fromWalletID, toWalletID int64) (fee int64, found bool, err error)
+	LastFee(ctx context.Context, orgID, fromWalletID, toWalletID int64) (fee int64, found bool, err error)
 }
 
 // ChangeNotifier is told whenever a user's financial data changes, so caches

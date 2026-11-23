@@ -94,3 +94,13 @@ func queryInt64(r *http.Request, key string) int64 {
 	v, _ := strconv.ParseInt(r.URL.Query().Get(key), 10, 64)
 	return v
 }
+
+// pathInt64 reads a positive integer path value by name.
+func pathInt64(w http.ResponseWriter, r *http.Request, name string) (int64, bool) {
+	id, err := strconv.ParseInt(r.PathValue(name), 10, 64)
+	if err != nil || id <= 0 {
+		writeError(w, domain.NotFound("Data tidak ditemukan."))
+		return 0, false
+	}
+	return id, true
+}

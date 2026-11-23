@@ -20,7 +20,7 @@ type TxSuggestion struct {
 // import can be undone in one step.
 type ImportBatch struct {
 	ID         int64     `json:"id"`
-	UserID     int64     `json:"-"`
+	OrgID      int64     `json:"-"`
 	WalletID   int64     `json:"walletId"`
 	WalletName string    `json:"walletName"`
 	FileName   string    `json:"fileName"`
@@ -39,13 +39,13 @@ func DuplicateKey(date string, t TxType, amount int64, name string) string {
 type EntryRepository interface {
 	// Suggest returns past names starting with prefix (or equal to it when
 	// exact), most used first, each with the details of its latest use.
-	Suggest(ctx context.Context, userID int64, prefix string, exact bool, limit int) ([]TxSuggestion, error)
+	Suggest(ctx context.Context, orgID int64, prefix string, exact bool, limit int) ([]TxSuggestion, error)
 	// ExistingKeys returns DuplicateKeys of a wallet's transactions in a range.
-	ExistingKeys(ctx context.Context, userID, walletID int64, from, to string) (map[string]bool, error)
+	ExistingKeys(ctx context.Context, orgID, walletID int64, from, to string) (map[string]bool, error)
 	// CreateBatch inserts the batch and all its transactions in one commit; the
 	// wallet balance moves by the net amount (ErrInsufficient if it would go below zero).
 	CreateBatch(ctx context.Context, b *ImportBatch, txs []Transaction) error
-	Batches(ctx context.Context, userID int64) ([]ImportBatch, error)
+	Batches(ctx context.Context, orgID int64) ([]ImportBatch, error)
 	// UndoBatch removes the batch's remaining transactions and reverses their effect.
-	UndoBatch(ctx context.Context, userID, batchID int64) error
+	UndoBatch(ctx context.Context, orgID, batchID int64) error
 }

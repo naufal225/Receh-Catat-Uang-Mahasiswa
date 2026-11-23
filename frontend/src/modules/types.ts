@@ -30,6 +30,8 @@ export interface PrimaryAction {
 
 export interface AppModule {
   id: string;
+  /** Where a brand-new account lands first (defaults to /app). */
+  signupPath?: string;
   /** User pages by path, e.g. "/app/dompet". "/app" is the home page. */
   pages: Record<string, ModulePage>;
   nav: NavItem[];

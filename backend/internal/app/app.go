@@ -84,11 +84,12 @@ func New(p Params) (*App, error) {
 	auditRepo := mysql.NewAuditRepo(p.DB)
 
 	audit := usecase.NewAuditRecorder(auditRepo, sessions, geoip.New(p.GeoIPURL), 2)
-	// Bumped by every write to a user's data; read caches key on it.
+	// Bumped by every write to a workspace's data; read caches key on it.
 	versions := cache.NewVersions()
 	// Every write tells all listeners: the version above and the notification worker.
 	changes := &usecase.ChangeNotifiers{versions}
-	hooks := &usecase.UserHooks{}
+	orgs := usecase.NewOrgService(mysql.NewOrgRepo(p.DB), users, audit, p.Clock, p.SessionCacheTTL)
+	hooks := usecase.NewUserHooks(orgs)
 
 	auth := usecase.NewAuthService(users, sessions, audit, p.BcryptCost, hooks)
 	var janitors []func(context.Context)
@@ -97,8 +98,8 @@ func New(p Params) (*App, error) {
 		janitors = append(janitors, func(ctx context.Context) { auth.OAuthStates().RunJanitor(ctx, time.Minute) })
 	}
 	membership := usecase.NewMembershipService(p.BillingEnabled, mysql.NewEntitlementRepo(p.DB), mysql.NewPromoRepo(p.DB),
-		users, audit, p.Clock)
-	notifications := usecase.NewNotificationService(mysql.NewNotificationRepo(p.DB), users, p.Clock)
+		users, orgs, audit, p.Clock)
+	notifications := usecase.NewNotificationService(mysql.NewNotificationRepo(p.DB), users, orgs, p.Clock)
 	*changes = append(*changes, notifications)
 
 	svc := deliveryhttp.Services{
@@ -106,6 +107,7 @@ func New(p Params) (*App, error) {
 		Admin:         usecase.NewAdminService(users, sessions, auditRepo, audit, p.BcryptCost, hooks),
 		Membership:    membership,
 		Notifications: notifications,
+		Orgs:          orgs,
 	}
 	server := deliveryhttp.NewServer(svc, deliveryhttp.Options{
 		CookieSecure: p.CookieSecure, TrustProxy: p.TrustProxy, StaticDir: p.StaticDir,
@@ -113,7 +115,7 @@ func New(p Params) (*App, error) {
 
 	host := &modules.Host{
 		DB: p.DB, Clock: p.Clock, Locks: keymutex.New(), Changes: changes, Versions: versions,
-		Plans: membership, Membership: membership, Notifications: notifications, Users: hooks, Server: server,
+		Plans: membership, Membership: membership, Notifications: notifications, Orgs: orgs, Server: server,
 		CacheTTL: p.DashboardCacheTTL, SweepEvery: p.SweepEvery, AppName: p.AppName,
 	}
 	byName := map[string]modules.Module{}
@@ -134,6 +136,7 @@ func New(p Params) (*App, error) {
 			func(ctx context.Context) { users.Cache().RunJanitor(ctx, time.Minute) },
 			func(ctx context.Context) { sessions.Cache().RunJanitor(ctx, time.Minute) },
 			auth.Maintain,
+			orgs.RunJanitor,
 			notifications.RunWorker,
 			func(ctx context.Context) { notifications.RunScheduler(ctx, 10*time.Minute) },
 		), host.Jobs()...),

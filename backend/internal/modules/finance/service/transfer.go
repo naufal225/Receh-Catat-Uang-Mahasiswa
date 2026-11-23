@@ -47,7 +47,7 @@ func NewTransferService(t model.TransferRepository, w model.WalletRepository, c 
 
 // validate checks the input and returns both wallets. allowArchived lists
 // wallets an edit may keep even though they were archived since.
-func (s *TransferService) validate(ctx context.Context, userID int64, in *TransferInput, allowArchived ...int64) (from, to *model.Wallet, err error) {
+func (s *TransferService) validate(ctx context.Context, orgID int64, in *TransferInput, allowArchived ...int64) (from, to *model.Wallet, err error) {
 	in.Note = strings.Join(strings.Fields(in.Note), " ")
 	if utf8.RuneCountInString(in.Note) > 80 {
 		return nil, nil, domain.Invalid("note", "Catatan maksimal 80 karakter.")
@@ -73,7 +73,7 @@ func (s *TransferService) validate(ctx context.Context, userID int64, in *Transf
 		return nil, nil, domain.Invalid("toWalletId", "Pilih dompet tujuan yang berbeda dari dompet asal.")
 	}
 	load := func(id int64, field, missing string) (*model.Wallet, error) {
-		w, err := s.wallets.ByID(ctx, userID, id)
+		w, err := s.wallets.ByID(ctx, orgID, id)
 		if errors.Is(err, domain.ErrNoRows) {
 			return nil, domain.Invalid(field, missing)
 		}
@@ -96,18 +96,18 @@ func (s *TransferService) validate(ctx context.Context, userID int64, in *Transf
 
 // feeCategory finds the fee category, creating it for accounts made before
 // transfers existed or whose owner deleted it.
-func (s *TransferService) feeCategory(ctx context.Context, userID int64) (int64, error) {
-	c, err := s.categories.ByName(ctx, userID, model.TxExpense, FeeCategoryName)
+func (s *TransferService) feeCategory(ctx context.Context, orgID int64) (int64, error) {
+	c, err := s.categories.ByName(ctx, orgID, model.TxExpense, FeeCategoryName)
 	if err == nil {
 		return c.ID, nil
 	}
 	if !errors.Is(err, domain.ErrNoRows) {
 		return 0, err
 	}
-	created := &model.Category{UserID: userID, Name: FeeCategoryName, Type: model.TxExpense, Color: "c0"}
+	created := &model.Category{OrgID: orgID, Name: FeeCategoryName, Type: model.TxExpense, Color: "c0"}
 	if err := s.categories.Create(ctx, created); err != nil {
 		// Lost a race with a parallel request: the other one created it.
-		if c, again := s.categories.ByName(ctx, userID, model.TxExpense, FeeCategoryName); again == nil {
+		if c, again := s.categories.ByName(ctx, orgID, model.TxExpense, FeeCategoryName); again == nil {
 			return c.ID, nil
 		}
 		return 0, err
@@ -115,13 +115,13 @@ func (s *TransferService) feeCategory(ctx context.Context, userID int64) (int64,
 	return created.ID, nil
 }
 
-func (s *TransferService) build(ctx context.Context, userID int64, in TransferInput, from, to *model.Wallet) (*model.Transfer, error) {
+func (s *TransferService) build(ctx context.Context, orgID int64, in TransferInput, from, to *model.Wallet) (*model.Transfer, error) {
 	t := &model.Transfer{
-		UserID: userID, FromWalletID: from.ID, FromWalletName: from.Name, ToWalletID: to.ID, ToWalletName: to.Name,
+		OrgID: orgID, FromWalletID: from.ID, FromWalletName: from.Name, ToWalletID: to.ID, ToWalletName: to.Name,
 		Amount: in.Amount, Fee: in.Fee, Note: in.Note, OccurredOn: in.OccurredOn,
 	}
 	if t.Fee > 0 {
-		id, err := s.feeCategory(ctx, userID)
+		id, err := s.feeCategory(ctx, orgID)
 		if err != nil {
 			return nil, err
 		}
@@ -140,19 +140,19 @@ func shortfall(w *model.Wallet, need, fee int64) error {
 	return domain.Conflict("INSUFFICIENT_BALANCE", msg+", saldo saat ini "+formatRp(w.Balance)+".")
 }
 
-func (s *TransferService) Create(ctx context.Context, userID int64, in TransferInput) (*model.Transfer, error) {
-	defer s.notify.changed(userID)
-	if _, _, err := s.validate(ctx, userID, &in); err != nil {
+func (s *TransferService) Create(ctx context.Context, orgID int64, in TransferInput) (*model.Transfer, error) {
+	defer s.notify.changed(orgID)
+	if _, _, err := s.validate(ctx, orgID, &in); err != nil {
 		return nil, err
 	}
 	unlock := s.locks.Lock(in.FromWalletID, in.ToWalletID)
 	defer unlock()
 	// Re-read under the lock so the balance check sees every earlier payment.
-	from, to, err := s.validate(ctx, userID, &in)
+	from, to, err := s.validate(ctx, orgID, &in)
 	if err != nil {
 		return nil, err
 	}
-	t, err := s.build(ctx, userID, in, from, to)
+	t, err := s.build(ctx, orgID, in, from, to)
 	if err != nil {
 		return nil, err
 	}
@@ -165,41 +165,41 @@ func (s *TransferService) Create(ctx context.Context, userID int64, in TransferI
 		}
 		return nil, err
 	}
-	return s.transfers.ByID(ctx, userID, t.ID)
+	return s.transfers.ByID(ctx, orgID, t.ID)
 }
 
-func (s *TransferService) Get(ctx context.Context, userID, id int64) (*model.Transfer, error) {
-	t, err := s.transfers.ByID(ctx, userID, id)
+func (s *TransferService) Get(ctx context.Context, orgID, id int64) (*model.Transfer, error) {
+	t, err := s.transfers.ByID(ctx, orgID, id)
 	if err != nil {
 		return nil, notFoundOr(err, "Transfer tidak ditemukan.")
 	}
 	return t, nil
 }
 
-func (s *TransferService) Update(ctx context.Context, userID, id int64, in TransferInput) (*model.Transfer, error) {
-	defer s.notify.changed(userID)
-	current, err := s.Get(ctx, userID, id)
+func (s *TransferService) Update(ctx context.Context, orgID, id int64, in TransferInput) (*model.Transfer, error) {
+	defer s.notify.changed(orgID)
+	current, err := s.Get(ctx, orgID, id)
 	if err != nil {
 		return nil, err
 	}
 	keep := []int64{current.FromWalletID, current.ToWalletID}
-	if _, _, err := s.validate(ctx, userID, &in, keep...); err != nil {
+	if _, _, err := s.validate(ctx, orgID, &in, keep...); err != nil {
 		return nil, err
 	}
 	unlock := s.locks.Lock(current.FromWalletID, current.ToWalletID, in.FromWalletID, in.ToWalletID)
 	defer unlock()
-	old, err := s.Get(ctx, userID, id)
+	old, err := s.Get(ctx, orgID, id)
 	if err != nil {
 		return nil, err
 	}
 	if old.FromWalletID != current.FromWalletID || old.ToWalletID != current.ToWalletID {
 		return nil, domain.Conflict("STALE", "Transfer baru saja berubah. Muat ulang lalu coba lagi.")
 	}
-	from, to, err := s.validate(ctx, userID, &in, keep...)
+	from, to, err := s.validate(ctx, orgID, &in, keep...)
 	if err != nil {
 		return nil, err
 	}
-	updated, err := s.build(ctx, userID, in, from, to)
+	updated, err := s.build(ctx, orgID, in, from, to)
 	if err != nil {
 		return nil, err
 	}
@@ -210,18 +210,18 @@ func (s *TransferService) Update(ctx context.Context, userID, id int64, in Trans
 		}
 		return nil, notFoundOr(err, "Transfer tidak ditemukan.")
 	}
-	return s.transfers.ByID(ctx, userID, id)
+	return s.transfers.ByID(ctx, orgID, id)
 }
 
-func (s *TransferService) Delete(ctx context.Context, userID, id int64) error {
-	defer s.notify.changed(userID)
-	current, err := s.Get(ctx, userID, id)
+func (s *TransferService) Delete(ctx context.Context, orgID, id int64) error {
+	defer s.notify.changed(orgID)
+	current, err := s.Get(ctx, orgID, id)
 	if err != nil {
 		return err
 	}
 	unlock := s.locks.Lock(current.FromWalletID, current.ToWalletID)
 	defer unlock()
-	t, err := s.Get(ctx, userID, id)
+	t, err := s.Get(ctx, orgID, id)
 	if err != nil {
 		return err
 	}
@@ -241,8 +241,8 @@ type FeeHint struct {
 	Found bool  `json:"found"`
 }
 
-func (s *TransferService) LastFee(ctx context.Context, userID, fromID, toID int64) (*FeeHint, error) {
-	fee, found, err := s.transfers.LastFee(ctx, userID, fromID, toID)
+func (s *TransferService) LastFee(ctx context.Context, orgID, fromID, toID int64) (*FeeHint, error) {
+	fee, found, err := s.transfers.LastFee(ctx, orgID, fromID, toID)
 	if err != nil {
 		return nil, err
 	}

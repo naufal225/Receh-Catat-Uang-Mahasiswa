@@ -22,12 +22,12 @@ func NewCategoryService(c model.CategoryRepository, n domain.ChangeNotifier) *Ca
 	return &CategoryService{categories: c, notify: notifier{n}}
 }
 
-func (s *CategoryService) List(ctx context.Context, userID int64) ([]model.Category, error) {
-	return s.categories.List(ctx, userID)
+func (s *CategoryService) List(ctx context.Context, orgID int64) ([]model.Category, error) {
+	return s.categories.List(ctx, orgID)
 }
 
-func (s *CategoryService) Create(ctx context.Context, userID int64, in CategoryInput) (*model.Category, error) {
-	defer s.notify.changed(userID)
+func (s *CategoryService) Create(ctx context.Context, orgID int64, in CategoryInput) (*model.Category, error) {
+	defer s.notify.changed(orgID)
 	name, err := cleanName("name", in.Name, 30, "Nama kategori wajib diisi.")
 	if err != nil {
 		return nil, err
@@ -38,7 +38,7 @@ func (s *CategoryService) Create(ctx context.Context, userID int64, in CategoryI
 	if err := validColor(in.Color); err != nil {
 		return nil, err
 	}
-	c := &model.Category{UserID: userID, Name: name, Type: in.Type, Color: in.Color}
+	c := &model.Category{OrgID: orgID, Name: name, Type: in.Type, Color: in.Color}
 	if err := s.categories.Create(ctx, c); err != nil {
 		return nil, err
 	}
@@ -47,8 +47,8 @@ func (s *CategoryService) Create(ctx context.Context, userID int64, in CategoryI
 
 // Update changes name and colour. The type stays fixed so past transactions
 // never end up under a category of the opposite kind.
-func (s *CategoryService) Update(ctx context.Context, userID, id int64, in CategoryInput) (*model.Category, error) {
-	defer s.notify.changed(userID)
+func (s *CategoryService) Update(ctx context.Context, orgID, id int64, in CategoryInput) (*model.Category, error) {
+	defer s.notify.changed(orgID)
 	name, err := cleanName("name", in.Name, 30, "Nama kategori wajib diisi.")
 	if err != nil {
 		return nil, err
@@ -56,7 +56,7 @@ func (s *CategoryService) Update(ctx context.Context, userID, id int64, in Categ
 	if err := validColor(in.Color); err != nil {
 		return nil, err
 	}
-	c, err := s.categories.ByID(ctx, userID, id)
+	c, err := s.categories.ByID(ctx, orgID, id)
 	if err != nil {
 		return nil, notFoundOr(err, "Kategori tidak ditemukan.")
 	}
@@ -67,9 +67,9 @@ func (s *CategoryService) Update(ctx context.Context, userID, id int64, in Categ
 	return c, nil
 }
 
-func (s *CategoryService) Delete(ctx context.Context, userID, id int64) error {
-	defer s.notify.changed(userID)
-	if _, err := s.categories.ByID(ctx, userID, id); err != nil {
+func (s *CategoryService) Delete(ctx context.Context, orgID, id int64) error {
+	defer s.notify.changed(orgID)
+	if _, err := s.categories.ByID(ctx, orgID, id); err != nil {
 		return notFoundOr(err, "Kategori tidak ditemukan.")
 	}
 	used, err := s.categories.InUse(ctx, id)

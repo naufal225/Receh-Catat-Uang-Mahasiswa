@@ -43,7 +43,7 @@ func NewRecurringService(r model.RecurringRepository, w model.WalletRepository, 
 	return &RecurringService{repo: r, wallets: w, categories: c, clock: clock, locks: locks, workers: workers, notify: notifier{n}}
 }
 
-func (s *RecurringService) validate(ctx context.Context, userID int64, in *RecurringInput) error {
+func (s *RecurringService) validate(ctx context.Context, orgID int64, in *RecurringInput) error {
 	name, err := cleanName("name", in.Name, 80, "Beri nama, misalnya \"Netflix\".")
 	if err != nil {
 		return err
@@ -58,7 +58,7 @@ func (s *RecurringService) validate(ctx context.Context, userID int64, in *Recur
 	if err := validAmount("amount", in.Amount); err != nil {
 		return err
 	}
-	w, err := s.wallets.ByID(ctx, userID, in.WalletID)
+	w, err := s.wallets.ByID(ctx, orgID, in.WalletID)
 	if err != nil {
 		if errors.Is(err, domain.ErrNoRows) {
 			return domain.Invalid("walletId", "Pilih dompet.")
@@ -68,7 +68,7 @@ func (s *RecurringService) validate(ctx context.Context, userID int64, in *Recur
 	if w.Archived {
 		return domain.Invalid("walletId", "Dompet ini sudah diarsipkan.")
 	}
-	c, err := s.categories.ByID(ctx, userID, in.CategoryID)
+	c, err := s.categories.ByID(ctx, orgID, in.CategoryID)
 	if err != nil {
 		if errors.Is(err, domain.ErrNoRows) {
 			return domain.Invalid("categoryId", "Pilih kategori.")
@@ -83,9 +83,9 @@ func (s *RecurringService) validate(ctx context.Context, userID int64, in *Recur
 
 // Create saves the rule. If it starts today, the first occurrence posts right
 // away, so the balance is already correct when the person returns to the page.
-func (s *RecurringService) Create(ctx context.Context, userID int64, in RecurringInput) (*model.Recurring, error) {
-	defer s.notify.changed(userID)
-	if err := s.validate(ctx, userID, &in); err != nil {
+func (s *RecurringService) Create(ctx context.Context, orgID int64, in RecurringInput) (*model.Recurring, error) {
+	defer s.notify.changed(orgID)
+	if err := s.validate(ctx, orgID, &in); err != nil {
 		return nil, err
 	}
 	start, err := domain.ParseDate(in.StartOn)
@@ -96,24 +96,24 @@ func (s *RecurringService) Create(ctx context.Context, userID int64, in Recurrin
 		return nil, domain.Invalid("startOn", "Tanggal mulai tidak boleh sudah lewat.")
 	}
 	r := &model.Recurring{
-		UserID: userID, WalletID: in.WalletID, CategoryID: in.CategoryID, Type: in.Type, Name: in.Name,
+		OrgID: orgID, WalletID: in.WalletID, CategoryID: in.CategoryID, Type: in.Type, Name: in.Name,
 		Amount: in.Amount, Frequency: in.Frequency, AnchorDay: start.Day(), NextDue: in.StartOn, Active: true,
 	}
 	if err := s.repo.Create(ctx, r); err != nil {
 		return nil, err
 	}
 	s.process(ctx, *r, s.clock.Today())
-	return s.repo.ByID(ctx, userID, r.ID)
+	return s.repo.ByID(ctx, orgID, r.ID)
 }
 
 // Update edits the rule. The schedule resets only if the date actually changed.
-func (s *RecurringService) Update(ctx context.Context, userID, id int64, in RecurringInput) (*model.Recurring, error) {
-	defer s.notify.changed(userID)
-	r, err := s.repo.ByID(ctx, userID, id)
+func (s *RecurringService) Update(ctx context.Context, orgID, id int64, in RecurringInput) (*model.Recurring, error) {
+	defer s.notify.changed(orgID)
+	r, err := s.repo.ByID(ctx, orgID, id)
 	if err != nil {
 		return nil, notFoundOr(err, "Jadwal rutin tidak ditemukan.")
 	}
-	if err := s.validate(ctx, userID, &in); err != nil {
+	if err := s.validate(ctx, orgID, &in); err != nil {
 		return nil, err
 	}
 	if in.StartOn != r.NextDue {
@@ -134,14 +134,14 @@ func (s *RecurringService) Update(ctx context.Context, userID, id int64, in Recu
 	if r.Active {
 		s.process(ctx, *r, s.clock.Today())
 	}
-	return s.repo.ByID(ctx, userID, id)
+	return s.repo.ByID(ctx, orgID, id)
 }
 
 // SetActive pauses or resumes. Periods missed while paused are skipped, not
 // charged in a lump: pausing Netflix should not bill the months it was paused.
-func (s *RecurringService) SetActive(ctx context.Context, userID, id int64, active bool) (*model.Recurring, error) {
-	defer s.notify.changed(userID)
-	r, err := s.repo.ByID(ctx, userID, id)
+func (s *RecurringService) SetActive(ctx context.Context, orgID, id int64, active bool) (*model.Recurring, error) {
+	defer s.notify.changed(orgID)
+	r, err := s.repo.ByID(ctx, orgID, id)
 	if err != nil {
 		return nil, notFoundOr(err, "Jadwal rutin tidak ditemukan.")
 	}
@@ -162,12 +162,12 @@ func (s *RecurringService) SetActive(ctx context.Context, userID, id int64, acti
 	if active {
 		s.process(ctx, *r, s.clock.Today())
 	}
-	return s.repo.ByID(ctx, userID, id)
+	return s.repo.ByID(ctx, orgID, id)
 }
 
-func (s *RecurringService) Delete(ctx context.Context, userID, id int64) error {
-	defer s.notify.changed(userID)
-	ok, err := s.repo.Delete(ctx, userID, id)
+func (s *RecurringService) Delete(ctx context.Context, orgID, id int64) error {
+	defer s.notify.changed(orgID)
+	ok, err := s.repo.Delete(ctx, orgID, id)
 	if err != nil {
 		return err
 	}
@@ -177,8 +177,8 @@ func (s *RecurringService) Delete(ctx context.Context, userID, id int64) error {
 	return nil
 }
 
-func (s *RecurringService) List(ctx context.Context, userID int64) ([]model.Recurring, error) {
-	return s.repo.List(ctx, userID)
+func (s *RecurringService) List(ctx context.Context, orgID int64) ([]model.Recurring, error) {
+	return s.repo.List(ctx, orgID)
 }
 
 // RunDue posts every occurrence due by today across all users, using a small
@@ -219,7 +219,7 @@ func (s *RecurringService) process(ctx context.Context, r model.Recurring, today
 	var posted int64
 	defer func() {
 		if posted > 0 {
-			s.notify.changed(r.UserID)
+			s.notify.changed(r.OrgID)
 		}
 	}()
 	for r.NextDue <= today {

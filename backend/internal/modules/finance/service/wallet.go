@@ -39,8 +39,8 @@ func (in *WalletInput) validate() error {
 	return validColor(in.Color)
 }
 
-func (s *WalletService) Create(ctx context.Context, userID int64, in WalletInput) (*model.Wallet, error) {
-	defer s.notify.changed(userID)
+func (s *WalletService) Create(ctx context.Context, orgID int64, in WalletInput) (*model.Wallet, error) {
+	defer s.notify.changed(orgID)
 	if err := in.validate(); err != nil {
 		return nil, err
 	}
@@ -52,33 +52,33 @@ func (s *WalletService) Create(ctx context.Context, userID int64, in WalletInput
 	}
 	// Count and create under one per-user lock, so two parallel requests cannot
 	// both slip in under the limit.
-	unlock := s.locks.Lock(userLockKey(userID))
+	unlock := s.locks.Lock(scopeLockKey(orgID))
 	defer unlock()
-	if err := checkLimit(ctx, s.plans, userID, LimitWallets, func() (int, error) {
-		ws, err := s.wallets.List(ctx, userID, false)
+	if err := checkLimit(ctx, s.plans, orgID, LimitWallets, func() (int, error) {
+		ws, err := s.wallets.List(ctx, orgID, false)
 		return len(ws), err
 	}, "Paket Gratis bisa memakai {limit}"+" dompet aktif. Upgrade ke Premium untuk dompet tanpa batas, atau arsipkan dompet yang tidak dipakai."); err != nil {
 		return nil, err
 	}
-	w := &model.Wallet{UserID: userID, Name: in.Name, Type: in.Type, Color: in.Color, Balance: in.Balance}
+	w := &model.Wallet{OrgID: orgID, Name: in.Name, Type: in.Type, Color: in.Color, Balance: in.Balance}
 	if err := s.wallets.Create(ctx, w); err != nil {
 		return nil, err
 	}
 	return w, nil
 }
 
-func (s *WalletService) List(ctx context.Context, userID int64) ([]model.Wallet, error) {
-	return s.wallets.List(ctx, userID, false)
+func (s *WalletService) List(ctx context.Context, orgID int64) ([]model.Wallet, error) {
+	return s.wallets.List(ctx, orgID, false)
 }
 
 // Update changes how a wallet looks. Balance is ignored on purpose: money only
 // moves through transactions, so the history always explains the balance.
-func (s *WalletService) Update(ctx context.Context, userID, id int64, in WalletInput) (*model.Wallet, error) {
-	defer s.notify.changed(userID)
+func (s *WalletService) Update(ctx context.Context, orgID, id int64, in WalletInput) (*model.Wallet, error) {
+	defer s.notify.changed(orgID)
 	if err := in.validate(); err != nil {
 		return nil, err
 	}
-	w, err := s.wallets.ByID(ctx, userID, id)
+	w, err := s.wallets.ByID(ctx, orgID, id)
 	if err != nil {
 		return nil, notFoundOr(err, "Dompet tidak ditemukan.")
 	}
@@ -91,11 +91,11 @@ func (s *WalletService) Update(ctx context.Context, userID, id int64, in WalletI
 
 // Remove deletes an unused wallet. A wallet with history is archived instead, so
 // past reports stay accurate. It returns true when the wallet was archived.
-func (s *WalletService) Remove(ctx context.Context, userID, id int64) (archived bool, err error) {
-	defer s.notify.changed(userID)
+func (s *WalletService) Remove(ctx context.Context, orgID, id int64) (archived bool, err error) {
+	defer s.notify.changed(orgID)
 	unlock := s.locks.Lock(id)
 	defer unlock()
-	if _, err := s.wallets.ByID(ctx, userID, id); err != nil {
+	if _, err := s.wallets.ByID(ctx, orgID, id); err != nil {
 		return false, notFoundOr(err, "Dompet tidak ditemukan.")
 	}
 	used, err := s.wallets.HasTransactions(ctx, id)

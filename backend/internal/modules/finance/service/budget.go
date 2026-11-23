@@ -35,18 +35,18 @@ func NewBudgetService(b model.BudgetRepository, c model.CategoryRepository, t mo
 }
 
 // Count is registered with MembershipService to show usage against the limit.
-func (s *BudgetService) Count(ctx context.Context, userID int64, u domain.Usage) error {
-	n, err := s.budgets.Count(ctx, userID)
+func (s *BudgetService) Count(ctx context.Context, orgID int64, u domain.Usage) error {
+	n, err := s.budgets.Count(ctx, orgID)
 	u[LimitBudgets] = n
 	return err
 }
 
-func (s *BudgetService) Create(ctx context.Context, userID int64, in BudgetInput) (*model.Budget, error) {
-	defer s.notify.changed(userID)
+func (s *BudgetService) Create(ctx context.Context, orgID int64, in BudgetInput) (*model.Budget, error) {
+	defer s.notify.changed(orgID)
 	if err := validAmount("amount", in.Amount); err != nil {
 		return nil, err
 	}
-	c, err := s.categories.ByID(ctx, userID, in.CategoryID)
+	c, err := s.categories.ByID(ctx, orgID, in.CategoryID)
 	if errors.Is(err, domain.ErrNoRows) {
 		return nil, domain.Invalid("categoryId", "Pilih kategori.")
 	}
@@ -56,38 +56,38 @@ func (s *BudgetService) Create(ctx context.Context, userID int64, in BudgetInput
 	if c.Type != model.TxExpense {
 		return nil, domain.Invalid("categoryId", "Anggaran hanya untuk kategori pengeluaran.")
 	}
-	unlock := s.locks.Lock(userLockKey(userID))
+	unlock := s.locks.Lock(scopeLockKey(orgID))
 	defer unlock()
-	if err := checkLimit(ctx, s.plans, userID, LimitBudgets, func() (int, error) {
-		return s.budgets.Count(ctx, userID)
+	if err := checkLimit(ctx, s.plans, orgID, LimitBudgets, func() (int, error) {
+		return s.budgets.Count(ctx, orgID)
 	}, "Paket Gratis bisa memakai {limit}"+" anggaran. Upgrade ke Premium untuk anggaran tanpa batas."); err != nil {
 		return nil, err
 	}
-	b := &model.Budget{UserID: userID, CategoryID: c.ID, CategoryName: c.Name, CategoryColor: c.Color, Amount: in.Amount}
+	b := &model.Budget{OrgID: orgID, CategoryID: c.ID, CategoryName: c.Name, CategoryColor: c.Color, Amount: in.Amount}
 	if err := s.budgets.Create(ctx, b); err != nil {
 		return nil, err
 	}
 	return b, nil
 }
 
-func (s *BudgetService) Update(ctx context.Context, userID, id, amount int64) (*model.Budget, error) {
-	defer s.notify.changed(userID)
+func (s *BudgetService) Update(ctx context.Context, orgID, id, amount int64) (*model.Budget, error) {
+	defer s.notify.changed(orgID)
 	if err := validAmount("amount", amount); err != nil {
 		return nil, err
 	}
-	ok, err := s.budgets.UpdateAmount(ctx, userID, id, amount)
+	ok, err := s.budgets.UpdateAmount(ctx, orgID, id, amount)
 	if err != nil {
 		return nil, err
 	}
 	if !ok {
 		return nil, domain.NotFound("Anggaran tidak ditemukan.")
 	}
-	return s.budgets.ByID(ctx, userID, id)
+	return s.budgets.ByID(ctx, orgID, id)
 }
 
-func (s *BudgetService) Delete(ctx context.Context, userID, id int64) error {
-	defer s.notify.changed(userID)
-	ok, err := s.budgets.Delete(ctx, userID, id)
+func (s *BudgetService) Delete(ctx context.Context, orgID, id int64) error {
+	defer s.notify.changed(orgID)
+	ok, err := s.budgets.Delete(ctx, orgID, id)
 	if err != nil {
 		return err
 	}
@@ -99,7 +99,7 @@ func (s *BudgetService) Delete(ctx context.Context, userID, id int64) error {
 
 // Month reports every budget against spending in one month ("YYYY-MM"; empty
 // means the current month).
-func (s *BudgetService) Month(ctx context.Context, userID int64, month string) (*model.BudgetMonth, error) {
+func (s *BudgetService) Month(ctx context.Context, orgID int64, month string) (*model.BudgetMonth, error) {
 	today, err := domain.ParseDate(s.clock.Today())
 	if err != nil {
 		return nil, err
@@ -116,8 +116,8 @@ func (s *BudgetService) Month(ctx context.Context, userID int64, month string) (
 	var budgets []model.Budget
 	var spent []model.CategorySlice
 	err = parallel(
-		func() (e error) { budgets, e = s.budgets.List(ctx, userID); return },
-		func() (e error) { spent, e = s.txs.SumByCategory(ctx, userID, 0, model.TxExpense, from, to); return },
+		func() (e error) { budgets, e = s.budgets.List(ctx, orgID); return },
+		func() (e error) { spent, e = s.txs.SumByCategory(ctx, orgID, 0, model.TxExpense, from, to); return },
 	)
 	if err != nil {
 		return nil, err

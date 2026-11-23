@@ -32,7 +32,7 @@ type DashboardService struct {
 
 // BudgetMonths is what the dashboard needs from BudgetService.
 type BudgetMonths interface {
-	Month(ctx context.Context, userID int64, month string) (*model.BudgetMonth, error)
+	Month(ctx context.Context, orgID int64, month string) (*model.BudgetMonth, error)
 }
 
 // WithBudgets adds this month's budgets to the dashboard.
@@ -40,17 +40,17 @@ func (s *DashboardService) WithBudgets(b BudgetMonths) { s.budgets = b }
 
 // GoalLister is what the dashboard needs from GoalService.
 type GoalLister interface {
-	List(ctx context.Context, userID int64, includeArchived bool) ([]model.GoalProgress, error)
+	List(ctx context.Context, orgID int64, includeArchived bool) ([]model.GoalProgress, error)
 }
 
 // WithGoals adds active savings goals to the dashboard.
 func (s *DashboardService) WithGoals(g GoalLister) { s.goals = g }
 
 type dashKey struct {
-	userID, walletID int64
-	version          uint64
-	unit, today      string
-	offset           int
+	orgID, walletID int64
+	version         uint64
+	unit, today     string
+	offset          int
 }
 
 // NewDashboardService takes the version counter the write services bump; a
@@ -65,18 +65,18 @@ func (s *DashboardService) Cache() *cache.TTL[dashKey, *model.Dashboard] { retur
 
 // Build returns the dashboard, from cache when nothing changed since it was
 // last built. Cached values are shared, so callers must not modify them.
-func (s *DashboardService) Build(ctx context.Context, userID int64, unit string, offset int, walletID int64) (*model.Dashboard, error) {
+func (s *DashboardService) Build(ctx context.Context, orgID int64, unit string, offset int, walletID int64) (*model.Dashboard, error) {
 	if offset < 0 {
 		offset = 0
 	}
-	key := dashKey{userID: userID, walletID: walletID, unit: unit, offset: offset, today: s.clock.Today()}
+	key := dashKey{orgID: orgID, walletID: walletID, unit: unit, offset: offset, today: s.clock.Today()}
 	if s.versions != nil {
-		key.version = s.versions.Get(userID)
+		key.version = s.versions.Get(orgID)
 	}
 	if d, ok := s.cache.Get(key); ok {
 		return d, nil
 	}
-	d, err := s.build(ctx, userID, unit, offset, walletID)
+	d, err := s.build(ctx, orgID, unit, offset, walletID)
 	if err != nil {
 		return nil, err
 	}
@@ -151,7 +151,7 @@ func windowTitle(unit string, b []model.Bucket) string {
 
 // build assembles the dashboard, running its independent queries in parallel
 // goroutines. Balances and latest transactions follow the wallet filter.
-func (s *DashboardService) build(ctx context.Context, userID int64, unit string, offset int, walletID int64) (*model.Dashboard, error) {
+func (s *DashboardService) build(ctx context.Context, orgID int64, unit string, offset int, walletID int64) (*model.Dashboard, error) {
 	if offset < 0 {
 		offset = 0
 	}
@@ -168,21 +168,21 @@ func (s *DashboardService) build(ctx context.Context, userID int64, unit string,
 
 	var days []model.DaySum
 	err = parallel(
-		func() (e error) { days, e = s.txs.SumByDay(ctx, userID, walletID, from, to); return },
+		func() (e error) { days, e = s.txs.SumByDay(ctx, orgID, walletID, from, to); return },
 		func() (e error) {
-			d.ExpenseSlices, e = s.txs.SumByCategory(ctx, userID, walletID, model.TxExpense, from, to)
+			d.ExpenseSlices, e = s.txs.SumByCategory(ctx, orgID, walletID, model.TxExpense, from, to)
 			return
 		},
 		func() (e error) {
-			d.IncomeSlices, e = s.txs.SumByCategory(ctx, userID, walletID, model.TxIncome, from, to)
+			d.IncomeSlices, e = s.txs.SumByCategory(ctx, orgID, walletID, model.TxIncome, from, to)
 			return
 		},
-		func() (e error) { d.Wallets, e = s.wallets.List(ctx, userID, false); return },
-		func() (e error) { d.Latest, e = s.txs.Latest(ctx, userID, walletID, 8); return },
+		func() (e error) { d.Wallets, e = s.wallets.List(ctx, orgID, false); return },
+		func() (e error) { d.Latest, e = s.txs.Latest(ctx, orgID, walletID, 8); return },
 		func() (e error) {
 			d.Goals = []model.GoalProgress{}
 			if s.goals != nil {
-				d.Goals, e = s.goals.List(ctx, userID, false)
+				d.Goals, e = s.goals.List(ctx, orgID, false)
 			}
 			return
 		},
@@ -191,14 +191,14 @@ func (s *DashboardService) build(ctx context.Context, userID int64, unit string,
 			if s.budgets == nil {
 				return nil
 			}
-			m, e := s.budgets.Month(ctx, userID, "")
+			m, e := s.budgets.Month(ctx, orgID, "")
 			if e == nil {
 				d.Budgets = m.Items
 			}
 			return e
 		},
 		func() error {
-			all, e := s.recurring.List(ctx, userID)
+			all, e := s.recurring.List(ctx, orgID)
 			if e != nil {
 				return e
 			}
@@ -243,7 +243,7 @@ type SliceSet struct {
 	IncomeSlices  []model.CategorySlice `json:"incomeSlices"`
 }
 
-func (s *DashboardService) Slices(ctx context.Context, userID, walletID int64, from, to string) (*SliceSet, error) {
+func (s *DashboardService) Slices(ctx context.Context, orgID, walletID int64, from, to string) (*SliceSet, error) {
 	if _, err := domain.ParseDate(from); err != nil {
 		return nil, domain.Invalid("from", "Tanggal tidak valid.")
 	}
@@ -253,11 +253,11 @@ func (s *DashboardService) Slices(ctx context.Context, userID, walletID int64, f
 	out := &SliceSet{}
 	err := parallel(
 		func() (e error) {
-			out.ExpenseSlices, e = s.txs.SumByCategory(ctx, userID, walletID, model.TxExpense, from, to)
+			out.ExpenseSlices, e = s.txs.SumByCategory(ctx, orgID, walletID, model.TxExpense, from, to)
 			return
 		},
 		func() (e error) {
-			out.IncomeSlices, e = s.txs.SumByCategory(ctx, userID, walletID, model.TxIncome, from, to)
+			out.IncomeSlices, e = s.txs.SumByCategory(ctx, orgID, walletID, model.TxIncome, from, to)
 			return
 		},
 	)

@@ -32,7 +32,7 @@ type GoalService struct {
 	goals   model.GoalRepository
 	wallets model.WalletRepository
 	clock   domain.Clock
-	locks   *keymutex.Map // userLockKey for the plan limit
+	locks   *keymutex.Map // scopeLockKey for the plan limit
 	perGoal *keymutex.Map // goal ids, separate from wallet ids
 	plans   PlanLimits
 	notify  notifier
@@ -43,8 +43,8 @@ func NewGoalService(g model.GoalRepository, w model.WalletRepository, clock doma
 	return &GoalService{goals: g, wallets: w, clock: clock, locks: locks, perGoal: keymutex.New(), plans: plans, notify: notifier{n}}
 }
 
-func (s *GoalService) Count(ctx context.Context, userID int64, u domain.Usage) error {
-	n, err := s.goals.CountActive(ctx, userID)
+func (s *GoalService) Count(ctx context.Context, orgID int64, u domain.Usage) error {
+	n, err := s.goals.CountActive(ctx, orgID)
 	u[LimitGoals] = n
 	return err
 }
@@ -54,7 +54,7 @@ func (s *GoalService) today() time.Time {
 	return d
 }
 
-func (s *GoalService) validate(ctx context.Context, userID int64, in *GoalInput) (*model.Goal, error) {
+func (s *GoalService) validate(ctx context.Context, orgID int64, in *GoalInput) (*model.Goal, error) {
 	name, err := cleanName("name", in.Name, 60, "Beri nama target, misalnya \"Laptop baru\".")
 	if err != nil {
 		return nil, err
@@ -68,7 +68,7 @@ func (s *GoalService) validate(ctx context.Context, userID int64, in *GoalInput)
 	if err := validColor(in.Color); err != nil {
 		return nil, err
 	}
-	g := &model.Goal{UserID: userID, Name: name, TargetAmount: in.TargetAmount, Color: in.Color}
+	g := &model.Goal{OrgID: orgID, Name: name, TargetAmount: in.TargetAmount, Color: in.Color}
 	if in.Deadline != "" {
 		d, err := domain.ParseDate(in.Deadline)
 		if err != nil {
@@ -81,7 +81,7 @@ func (s *GoalService) validate(ctx context.Context, userID int64, in *GoalInput)
 		g.Deadline = &dl
 	}
 	if in.WalletID != 0 {
-		w, err := s.wallets.ByID(ctx, userID, in.WalletID)
+		w, err := s.wallets.ByID(ctx, orgID, in.WalletID)
 		if errors.Is(err, domain.ErrNoRows) {
 			return nil, domain.Invalid("walletId", "Pilih dompet.")
 		}
@@ -96,8 +96,8 @@ func (s *GoalService) validate(ctx context.Context, userID int64, in *GoalInput)
 	return g, nil
 }
 
-func (s *GoalService) List(ctx context.Context, userID int64, includeArchived bool) ([]model.GoalProgress, error) {
-	goals, err := s.goals.List(ctx, userID, includeArchived)
+func (s *GoalService) List(ctx context.Context, orgID int64, includeArchived bool) ([]model.GoalProgress, error) {
+	goals, err := s.goals.List(ctx, orgID, includeArchived)
 	if err != nil {
 		return nil, err
 	}
@@ -109,16 +109,16 @@ func (s *GoalService) List(ctx context.Context, userID int64, includeArchived bo
 	return out, nil
 }
 
-func (s *GoalService) get(ctx context.Context, userID, id int64) (*model.Goal, error) {
-	g, err := s.goals.ByID(ctx, userID, id)
+func (s *GoalService) get(ctx context.Context, orgID, id int64) (*model.Goal, error) {
+	g, err := s.goals.ByID(ctx, orgID, id)
 	if err != nil {
 		return nil, notFoundOr(err, "Target tidak ditemukan.")
 	}
 	return g, nil
 }
 
-func (s *GoalService) progress(ctx context.Context, userID, id int64) (*model.GoalProgress, error) {
-	g, err := s.get(ctx, userID, id)
+func (s *GoalService) progress(ctx context.Context, orgID, id int64) (*model.GoalProgress, error) {
+	g, err := s.get(ctx, orgID, id)
 	if err != nil {
 		return nil, err
 	}
@@ -126,36 +126,36 @@ func (s *GoalService) progress(ctx context.Context, userID, id int64) (*model.Go
 	return &p, nil
 }
 
-func (s *GoalService) Create(ctx context.Context, userID int64, in GoalInput) (*model.GoalProgress, error) {
-	defer s.notify.changed(userID)
-	g, err := s.validate(ctx, userID, &in)
+func (s *GoalService) Create(ctx context.Context, orgID int64, in GoalInput) (*model.GoalProgress, error) {
+	defer s.notify.changed(orgID)
+	g, err := s.validate(ctx, orgID, &in)
 	if err != nil {
 		return nil, err
 	}
-	unlock := s.locks.Lock(userLockKey(userID))
+	unlock := s.locks.Lock(scopeLockKey(orgID))
 	defer unlock()
-	if err := s.checkLimit(ctx, userID); err != nil {
+	if err := s.checkLimit(ctx, orgID); err != nil {
 		return nil, err
 	}
 	if err := s.goals.Create(ctx, g); err != nil {
 		return nil, err
 	}
-	return s.progress(ctx, userID, g.ID)
+	return s.progress(ctx, orgID, g.ID)
 }
 
-func (s *GoalService) checkLimit(ctx context.Context, userID int64) error {
-	return checkLimit(ctx, s.plans, userID, LimitGoals, func() (int, error) {
-		return s.goals.CountActive(ctx, userID)
+func (s *GoalService) checkLimit(ctx context.Context, orgID int64) error {
+	return checkLimit(ctx, s.plans, orgID, LimitGoals, func() (int, error) {
+		return s.goals.CountActive(ctx, orgID)
 	}, "Paket Gratis bisa memakai {limit}"+" target tabungan aktif. Upgrade ke Premium untuk target tanpa batas, atau arsipkan target yang sudah selesai.")
 }
 
-func (s *GoalService) Update(ctx context.Context, userID, id int64, in GoalInput) (*model.GoalProgress, error) {
-	defer s.notify.changed(userID)
-	cur, err := s.get(ctx, userID, id)
+func (s *GoalService) Update(ctx context.Context, orgID, id int64, in GoalInput) (*model.GoalProgress, error) {
+	defer s.notify.changed(orgID)
+	cur, err := s.get(ctx, orgID, id)
 	if err != nil {
 		return nil, err
 	}
-	g, err := s.validate(ctx, userID, &in)
+	g, err := s.validate(ctx, orgID, &in)
 	if err != nil {
 		return nil, err
 	}
@@ -168,12 +168,12 @@ func (s *GoalService) Update(ctx context.Context, userID, id int64, in GoalInput
 	if err := s.goals.Update(ctx, g); err != nil {
 		return nil, err
 	}
-	return s.progress(ctx, userID, id)
+	return s.progress(ctx, orgID, id)
 }
 
-func (s *GoalService) Delete(ctx context.Context, userID, id int64) error {
-	defer s.notify.changed(userID)
-	ok, err := s.goals.Delete(ctx, userID, id)
+func (s *GoalService) Delete(ctx context.Context, orgID, id int64) error {
+	defer s.notify.changed(orgID)
+	ok, err := s.goals.Delete(ctx, orgID, id)
 	if err != nil {
 		return err
 	}
@@ -185,31 +185,31 @@ func (s *GoalService) Delete(ctx context.Context, userID, id int64) error {
 
 // SetArchived moves a finished goal out of the way, or brings it back (which
 // counts against the plan limit again).
-func (s *GoalService) SetArchived(ctx context.Context, userID, id int64, archived bool) (*model.GoalProgress, error) {
-	defer s.notify.changed(userID)
+func (s *GoalService) SetArchived(ctx context.Context, orgID, id int64, archived bool) (*model.GoalProgress, error) {
+	defer s.notify.changed(orgID)
 	var at *time.Time
 	if archived {
 		now := s.clock.Now()
 		at = &now
 	} else {
-		unlock := s.locks.Lock(userLockKey(userID))
+		unlock := s.locks.Lock(scopeLockKey(orgID))
 		defer unlock()
-		if err := s.checkLimit(ctx, userID); err != nil {
+		if err := s.checkLimit(ctx, orgID); err != nil {
 			return nil, err
 		}
 	}
-	ok, err := s.goals.SetArchived(ctx, userID, id, at)
+	ok, err := s.goals.SetArchived(ctx, orgID, id, at)
 	if err != nil {
 		return nil, err
 	}
 	if !ok {
 		return nil, domain.NotFound("Target tidak ditemukan.")
 	}
-	return s.progress(ctx, userID, id)
+	return s.progress(ctx, orgID, id)
 }
 
-func (s *GoalService) Contribute(ctx context.Context, userID, id int64, in ContributionInput) (*model.GoalProgress, error) {
-	defer s.notify.changed(userID)
+func (s *GoalService) Contribute(ctx context.Context, orgID, id int64, in ContributionInput) (*model.GoalProgress, error) {
+	defer s.notify.changed(orgID)
 	if in.Amount == 0 {
 		return nil, domain.Invalid("amount", "Masukkan nominalnya.")
 	}
@@ -233,7 +233,7 @@ func (s *GoalService) Contribute(ctx context.Context, userID, id int64, in Contr
 
 	unlock := s.perGoal.Lock(id)
 	defer unlock()
-	g, err := s.get(ctx, userID, id)
+	g, err := s.get(ctx, orgID, id)
 	if err != nil {
 		return nil, err
 	}
@@ -250,21 +250,21 @@ func (s *GoalService) Contribute(ctx context.Context, userID, id int64, in Contr
 	if err := s.goals.AddContribution(ctx, c); err != nil {
 		return nil, err
 	}
-	return s.progress(ctx, userID, id)
+	return s.progress(ctx, orgID, id)
 }
 
-func (s *GoalService) Contributions(ctx context.Context, userID, id int64) ([]model.GoalContribution, error) {
-	if _, err := s.get(ctx, userID, id); err != nil {
+func (s *GoalService) Contributions(ctx context.Context, orgID, id int64) ([]model.GoalContribution, error) {
+	if _, err := s.get(ctx, orgID, id); err != nil {
 		return nil, err
 	}
 	return s.goals.Contributions(ctx, id)
 }
 
-func (s *GoalService) DeleteContribution(ctx context.Context, userID, goalID, id int64) (*model.GoalProgress, error) {
-	defer s.notify.changed(userID)
+func (s *GoalService) DeleteContribution(ctx context.Context, orgID, goalID, id int64) (*model.GoalProgress, error) {
+	defer s.notify.changed(orgID)
 	unlock := s.perGoal.Lock(goalID)
 	defer unlock()
-	g, err := s.get(ctx, userID, goalID)
+	g, err := s.get(ctx, orgID, goalID)
 	if err != nil {
 		return nil, err
 	}
@@ -284,7 +284,7 @@ func (s *GoalService) DeleteContribution(ctx context.Context, userID, goalID, id
 	if !ok {
 		return nil, domain.NotFound("Setoran tidak ditemukan.")
 	}
-	return s.progress(ctx, userID, goalID)
+	return s.progress(ctx, orgID, goalID)
 }
 
 func abs64(v int64) int64 {

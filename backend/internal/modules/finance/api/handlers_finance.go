@@ -12,7 +12,7 @@ import (
 // ---- Wallets ---------------------------------------------------------------
 
 func (s *Handlers) listWallets(w http.ResponseWriter, r *http.Request, u *domain.User, _ *domain.Session) {
-	list, err := s.svc.Wallets.List(r.Context(), u.ID)
+	list, err := s.svc.Wallets.List(r.Context(), orgID(r))
 	if err != nil {
 		writeError(w, err)
 		return
@@ -25,7 +25,7 @@ func (s *Handlers) createWallet(w http.ResponseWriter, r *http.Request, u *domai
 	if !readJSON(w, r, &in) {
 		return
 	}
-	out, err := s.svc.Wallets.Create(r.Context(), u.ID, in)
+	out, err := s.svc.Wallets.Create(r.Context(), orgID(r), in)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -42,7 +42,7 @@ func (s *Handlers) updateWallet(w http.ResponseWriter, r *http.Request, u *domai
 	if !readJSON(w, r, &in) {
 		return
 	}
-	out, err := s.svc.Wallets.Update(r.Context(), u.ID, id, in)
+	out, err := s.svc.Wallets.Update(r.Context(), orgID(r), id, in)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -55,7 +55,7 @@ func (s *Handlers) deleteWallet(w http.ResponseWriter, r *http.Request, u *domai
 	if !ok {
 		return
 	}
-	archived, err := s.svc.Wallets.Remove(r.Context(), u.ID, id)
+	archived, err := s.svc.Wallets.Remove(r.Context(), orgID(r), id)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -66,7 +66,7 @@ func (s *Handlers) deleteWallet(w http.ResponseWriter, r *http.Request, u *domai
 // ---- Categories ------------------------------------------------------------
 
 func (s *Handlers) listCategories(w http.ResponseWriter, r *http.Request, u *domain.User, _ *domain.Session) {
-	list, err := s.svc.Categories.List(r.Context(), u.ID)
+	list, err := s.svc.Categories.List(r.Context(), orgID(r))
 	if err != nil {
 		writeError(w, err)
 		return
@@ -79,7 +79,7 @@ func (s *Handlers) createCategory(w http.ResponseWriter, r *http.Request, u *dom
 	if !readJSON(w, r, &in) {
 		return
 	}
-	out, err := s.svc.Categories.Create(r.Context(), u.ID, in)
+	out, err := s.svc.Categories.Create(r.Context(), orgID(r), in)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -96,7 +96,7 @@ func (s *Handlers) updateCategory(w http.ResponseWriter, r *http.Request, u *dom
 	if !readJSON(w, r, &in) {
 		return
 	}
-	out, err := s.svc.Categories.Update(r.Context(), u.ID, id, in)
+	out, err := s.svc.Categories.Update(r.Context(), orgID(r), id, in)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -109,7 +109,7 @@ func (s *Handlers) deleteCategory(w http.ResponseWriter, r *http.Request, u *dom
 	if !ok {
 		return
 	}
-	if err := s.svc.Categories.Delete(r.Context(), u.ID, id); err != nil {
+	if err := s.svc.Categories.Delete(r.Context(), orgID(r), id); err != nil {
 		writeError(w, err)
 		return
 	}
@@ -120,7 +120,7 @@ func (s *Handlers) deleteCategory(w http.ResponseWriter, r *http.Request, u *dom
 
 func (s *Handlers) listTransactions(w http.ResponseWriter, r *http.Request, u *domain.User, _ *domain.Session) {
 	q := r.URL.Query()
-	page, err := s.svc.Txs.List(r.Context(), u.ID, model.TxFilter{
+	page, err := s.svc.Txs.List(r.Context(), orgID(r), model.TxFilter{
 		Search:     q.Get("search"),
 		Type:       model.TxType(q.Get("type")),
 		WalletID:   queryInt64(r, "walletId"),
@@ -142,7 +142,7 @@ func (s *Handlers) createTransaction(w http.ResponseWriter, r *http.Request, u *
 	if !readJSON(w, r, &in) {
 		return
 	}
-	out, err := s.svc.Txs.Create(r.Context(), u.ID, in)
+	out, err := s.svc.Txs.Create(r.Context(), orgID(r), in)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -159,7 +159,7 @@ func (s *Handlers) updateTransaction(w http.ResponseWriter, r *http.Request, u *
 	if !readJSON(w, r, &in) {
 		return
 	}
-	out, err := s.svc.Txs.Update(r.Context(), u.ID, id, in)
+	out, err := s.svc.Txs.Update(r.Context(), orgID(r), id, in)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -172,7 +172,7 @@ func (s *Handlers) deleteTransaction(w http.ResponseWriter, r *http.Request, u *
 	if !ok {
 		return
 	}
-	if err := s.svc.Txs.Delete(r.Context(), u.ID, id); err != nil {
+	if err := s.svc.Txs.Delete(r.Context(), orgID(r), id); err != nil {
 		writeError(w, err)
 		return
 	}
@@ -182,7 +182,7 @@ func (s *Handlers) deleteTransaction(w http.ResponseWriter, r *http.Request, u *
 // ---- Recurring -------------------------------------------------------------
 
 func (s *Handlers) listRecurring(w http.ResponseWriter, r *http.Request, u *domain.User, _ *domain.Session) {
-	list, err := s.svc.Recurring.List(r.Context(), u.ID)
+	list, err := s.svc.Recurring.List(r.Context(), orgID(r))
 	if err != nil {
 		writeError(w, err)
 		return
@@ -195,7 +195,7 @@ func (s *Handlers) createRecurring(w http.ResponseWriter, r *http.Request, u *do
 	if !readJSON(w, r, &in) {
 		return
 	}
-	out, err := s.svc.Recurring.Create(r.Context(), u.ID, in)
+	out, err := s.svc.Recurring.Create(r.Context(), orgID(r), in)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -212,7 +212,7 @@ func (s *Handlers) updateRecurring(w http.ResponseWriter, r *http.Request, u *do
 	if !readJSON(w, r, &in) {
 		return
 	}
-	out, err := s.svc.Recurring.Update(r.Context(), u.ID, id, in)
+	out, err := s.svc.Recurring.Update(r.Context(), orgID(r), id, in)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -231,7 +231,7 @@ func (s *Handlers) setRecurringActive(w http.ResponseWriter, r *http.Request, u 
 	if !readJSON(w, r, &in) {
 		return
 	}
-	out, err := s.svc.Recurring.SetActive(r.Context(), u.ID, id, in.Active)
+	out, err := s.svc.Recurring.SetActive(r.Context(), orgID(r), id, in.Active)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -244,7 +244,7 @@ func (s *Handlers) deleteRecurring(w http.ResponseWriter, r *http.Request, u *do
 	if !ok {
 		return
 	}
-	if err := s.svc.Recurring.Delete(r.Context(), u.ID, id); err != nil {
+	if err := s.svc.Recurring.Delete(r.Context(), orgID(r), id); err != nil {
 		writeError(w, err)
 		return
 	}
@@ -258,7 +258,7 @@ func (s *Handlers) dashboard(w http.ResponseWriter, r *http.Request, u *domain.U
 	if unit == "" {
 		unit = "day"
 	}
-	out, err := s.svc.Dashboard.Build(r.Context(), u.ID, unit, queryInt(r, "offset"), queryInt64(r, "walletId"))
+	out, err := s.svc.Dashboard.Build(r.Context(), orgID(r), unit, queryInt(r, "offset"), queryInt64(r, "walletId"))
 	if err != nil {
 		writeError(w, err)
 		return
@@ -268,7 +268,7 @@ func (s *Handlers) dashboard(w http.ResponseWriter, r *http.Request, u *domain.U
 
 func (s *Handlers) dashboardSlices(w http.ResponseWriter, r *http.Request, u *domain.User, _ *domain.Session) {
 	q := r.URL.Query()
-	out, err := s.svc.Dashboard.Slices(r.Context(), u.ID, queryInt64(r, "walletId"), q.Get("from"), q.Get("to"))
+	out, err := s.svc.Dashboard.Slices(r.Context(), orgID(r), queryInt64(r, "walletId"), q.Get("from"), q.Get("to"))
 	if err != nil {
 		writeError(w, err)
 		return
@@ -277,7 +277,7 @@ func (s *Handlers) dashboardSlices(w http.ResponseWriter, r *http.Request, u *do
 }
 
 func (s *Handlers) monthlyReport(w http.ResponseWriter, r *http.Request, u *domain.User, _ *domain.Session) {
-	out, err := s.svc.Reports.Monthly(r.Context(), u, r.URL.Query().Get("month"))
+	out, err := s.svc.Reports.Monthly(r.Context(), orgID(r), u.Name, r.URL.Query().Get("month"))
 	if err != nil {
 		writeError(w, err)
 		return
@@ -286,7 +286,7 @@ func (s *Handlers) monthlyReport(w http.ResponseWriter, r *http.Request, u *doma
 }
 
 func (s *Handlers) monthlyReportPDF(w http.ResponseWriter, r *http.Request, u *domain.User, _ *domain.Session) {
-	data, name, err := s.svc.Reports.MonthlyPDF(r.Context(), u, r.URL.Query().Get("month"))
+	data, name, err := s.svc.Reports.MonthlyPDF(r.Context(), orgID(r), u.Name, r.URL.Query().Get("month"))
 	if err != nil {
 		writeError(w, err)
 		return

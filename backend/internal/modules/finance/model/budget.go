@@ -8,7 +8,7 @@ import (
 // Budget caps spending in one expense category per calendar month.
 type Budget struct {
 	ID            int64     `json:"id"`
-	UserID        int64     `json:"-"`
+	OrgID         int64     `json:"-"`
 	CategoryID    int64     `json:"categoryId"`
 	CategoryName  string    `json:"categoryName"`
 	CategoryColor string    `json:"categoryColor"`
@@ -63,9 +63,9 @@ type BudgetMonth struct {
 
 type BudgetRepository interface {
 	Create(ctx context.Context, b *Budget) error
-	UpdateAmount(ctx context.Context, userID, id, amount int64) (bool, error)
-	Delete(ctx context.Context, userID, id int64) (bool, error)
-	ByID(ctx context.Context, userID, id int64) (*Budget, error)
-	List(ctx context.Context, userID int64) ([]Budget, error)
-	Count(ctx context.Context, userID int64) (int, error)
+	UpdateAmount(ctx context.Context, orgID, id, amount int64) (bool, error)
+	Delete(ctx context.Context, orgID, id int64) (bool, error)
+	ByID(ctx context.Context, orgID, id int64) (*Budget, error)
+	List(ctx context.Context, orgID int64) ([]Budget, error)
+	Count(ctx context.Context, orgID int64) (int, error)
 }
