@@ -14,16 +14,16 @@ import { OrgSwitcher } from './OrgSwitcher';
 import { initial, Link, Modal } from './ui';
 
 const coreUserNav: NavItem[] = [
-  { to: '/app/tim', label: 'Tim', icon: 'users' },
-  { to: '/app/notifikasi', label: 'Notifikasi', icon: 'bell' },
-  { to: '/app/keamanan', label: 'Perangkat & keamanan', icon: 'device' },
-  { to: '/app/langganan', label: 'Langganan', icon: 'sparkle' },
+  { to: '/app/tim', label: 'Tim', icon: 'users', group: 'Workspace' },
+  { to: '/app/langganan', label: 'Langganan', icon: 'sparkle', group: 'Workspace' },
+  { to: '/app/notifikasi', label: 'Notifikasi', icon: 'bell', group: 'Akun' },
+  { to: '/app/keamanan', label: 'Perangkat & keamanan', icon: 'device', group: 'Akun' },
 ];
 
 const moduleNav = modules.flatMap((m) => m.nav);
 // Without a module home page, the core one gets the first nav slot.
 const userNav: NavItem[] = [
-  ...(moduleNav.some((n) => n.to === '/app') ? [] : [{ to: '/app', label: 'Beranda', icon: 'home', short: 'Beranda' } as NavItem]),
+  ...(moduleNav.some((n) => n.to === '/app') ? [] : [{ to: '/app', label: 'Beranda', icon: 'home', short: 'Beranda', group: 'Utama' } as NavItem]),
   ...moduleNav,
   ...coreUserNav,
 ];
@@ -33,12 +33,24 @@ const primary: PrimaryAction | undefined = modules.find((m) => m.primary)?.prima
 const noAction = () => ({ run: () => {}, disabled: true });
 
 const adminNav: NavItem[] = [
-  { to: '/admin', label: 'Pengguna', icon: 'users', short: 'Pengguna' },
-  { to: '/admin/audit', label: 'Audit log', icon: 'shield', short: 'Audit' },
-  { to: '/admin/kode', label: 'Kode undangan', icon: 'sparkle', short: 'Kode' },
-  { to: '/admin/pembayaran', label: 'Pembayaran', icon: 'wallet', short: 'Bayar' },
-  { to: '/admin/keamanan', label: 'Perangkat saya', icon: 'device', short: 'Perangkat' },
+  { to: '/admin', label: 'Pengguna', icon: 'users', short: 'Pengguna', group: 'Panel admin' },
+  { to: '/admin/audit', label: 'Audit log', icon: 'shield', short: 'Audit', group: 'Panel admin' },
+  { to: '/admin/kode', label: 'Kode undangan', icon: 'sparkle', short: 'Kode', group: 'Panel admin' },
+  { to: '/admin/pembayaran', label: 'Pembayaran', icon: 'wallet', short: 'Bayar', group: 'Panel admin' },
+  { to: '/admin/keamanan', label: 'Perangkat saya', icon: 'device', short: 'Perangkat', group: 'Akun' },
 ];
+
+// Consecutive items with the same group share one labelled section.
+function groupNav(items: NavItem[]): { label: string; items: NavItem[] }[] {
+  const out: { label: string; items: NavItem[] }[] = [];
+  for (const n of items) {
+    const label = n.group ?? 'Menu';
+    const last = out[out.length - 1];
+    if (last && last.label === label) last.items.push(n);
+    else out.push({ label, items: [n] });
+  }
+  return out;
+}
 
 function ThemeToggle() {
   const [theme, setTheme] = useStoredState<'light' | 'dark' | ''>(`${brand.storagePrefix}-theme`, '');
@@ -89,6 +101,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   }
 
   const mobileItems = nav.filter((n) => n.short);
+  const sections = groupNav(nav);
   // Everything not in the bottom bar lives in the mobile menu sheet.
   const menuItems = nav.filter((n) => !n.short);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -107,12 +120,18 @@ export function AppShell({ children }: { children: ReactNode }) {
             <Icon name={primary.icon} size={18} /> {primary.label}
           </button>
         )}
-        {isAdmin && <div className="nav-section">Panel admin</div>}
-        {nav.map((n) => (
-          <Link key={n.to} to={n.to} className="nav-link" aria-current={current(n.to) ? 'page' : undefined}>
-            <Icon name={n.icon} /> {n.label}
-          </Link>
-        ))}
+        <nav className="side-nav" aria-label="Menu">
+          {sections.map((sec) => (
+            <section key={sec.label} className="nav-group" aria-labelledby={`nav-${sec.label}`}>
+              <h2 className="nav-section" id={`nav-${sec.label}`}>{sec.label}</h2>
+              {sec.items.map((n) => (
+                <Link key={n.to} to={n.to} className="nav-link" aria-current={current(n.to) ? 'page' : undefined}>
+                  <Icon name={n.icon} /> {n.label}
+                </Link>
+              ))}
+            </section>
+          ))}
+        </nav>
         <div className="sidebar-foot">
           <div className="user-chip">
             <div className="avatar">{initial(user?.name ?? '')}</div>
