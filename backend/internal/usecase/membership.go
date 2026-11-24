@@ -51,17 +51,22 @@ func (s *MembershipService) BillingEnabled() bool { return s.billing }
 // AddLimits registers limits a module enforces (call before serving).
 func (s *MembershipService) AddLimits(defs ...domain.LimitDef) { s.defs = append(s.defs, defs...) }
 
+// Defs returns a copy of the registered limits.
+func (s *MembershipService) Defs() []domain.LimitDef { return append([]domain.LimitDef{}, s.defs...) }
+
 // AddUsageCounter registers how a module counts what a user has, for display.
 func (s *MembershipService) AddUsageCounter(fn func(ctx context.Context, orgID int64, u domain.Usage) error) {
 	s.counters = append(s.counters, fn)
 }
 
-// Plan returns the user's plan and, when premium comes from an entitlement, it.
-func (s *MembershipService) Plan(ctx context.Context, userID int64) (domain.Plan, *domain.Entitlement, error) {
+// Plan returns the plan of a workspace and, when premium comes from an
+// entitlement, it. Account-wide entitlements of the owner (comps, codes) and
+// payments for this workspace all count; the one lasting longest wins.
+func (s *MembershipService) Plan(ctx context.Context, ownerID, orgID int64) (domain.Plan, *domain.Entitlement, error) {
 	if !s.billing {
 		return domain.PlanPremium, nil, nil
 	}
-	e, err := s.ents.ActiveFor(ctx, userID, s.clock.Now())
+	e, err := s.ents.ActiveFor(ctx, ownerID, orgID, s.clock.Now())
 	if errors.Is(err, domain.ErrNoRows) {
 		return domain.PlanFree, nil, nil
 	}
@@ -79,7 +84,7 @@ func (s *MembershipService) Limit(ctx context.Context, orgID int64, key string) 
 	if err != nil {
 		return 0, err
 	}
-	p, _, err := s.Plan(ctx, owner)
+	p, _, err := s.Plan(ctx, owner, orgID)
 	if err != nil {
 		return 0, err
 	}
@@ -95,7 +100,7 @@ func (s *MembershipService) Get(ctx context.Context, viewerID, orgID int64) (*do
 	if err != nil {
 		return nil, err
 	}
-	plan, ent, err := s.Plan(ctx, owner)
+	plan, ent, err := s.Plan(ctx, owner, orgID)
 	if err != nil {
 		return nil, err
 	}

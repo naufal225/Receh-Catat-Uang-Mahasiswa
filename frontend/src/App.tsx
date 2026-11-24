@@ -10,13 +10,16 @@ import { navigate, useLocation } from './lib/router';
 import { modules } from './modules';
 import type { ModulePage } from './modules/types';
 import AdminAudit from './pages/AdminAudit';
+import AdminPayments from './pages/AdminPayments';
 import AdminPromos from './pages/AdminPromos';
 import AdminUsers from './pages/AdminUsers';
 import { Login, Register } from './pages/Auth';
 import Home from './pages/Home';
 import Invite from './pages/Invite';
 import Landing from './pages/Landing';
+import MockPay from './pages/MockPay';
 import NotificationSettings from './pages/NotificationSettings';
+import Pricing from './pages/Pricing';
 import Security from './pages/Security';
 import Subscription from './pages/Subscription';
 import Team from './pages/Team';
@@ -28,6 +31,7 @@ const corePages: Record<string, ModulePage> = {
   '/app/notifikasi': { el: NotificationSettings, title: 'Notifikasi' },
   '/app/keamanan': { el: Security, title: 'Perangkat & keamanan' },
   '/app/langganan': { el: Subscription, title: 'Langganan' },
+  '/app/langganan/mock': { el: MockPay, title: 'Pembayaran tiruan' },
 };
 // Module pages win over the core placeholder home.
 const userPages: Record<string, ModulePage> = Object.assign({}, corePages, ...modules.map((m) => m.pages));
@@ -36,6 +40,7 @@ const adminPages: Record<string, ModulePage> = {
   '/admin': { el: AdminUsers, title: 'Pengguna' },
   '/admin/audit': { el: AdminAudit, title: 'Audit log' },
   '/admin/kode': { el: AdminPromos, title: 'Kode undangan' },
+  '/admin/pembayaran': { el: AdminPayments, title: 'Pembayaran' },
   '/admin/keamanan': { el: Security, title: 'Perangkat saya' },
 };
 
@@ -83,6 +88,7 @@ export default function App() {
   if (!ready) return <Splash />;
 
   if (clean === '/undangan') return <Invite />;
+  if (clean === '/harga') return <Pricing />;
 
   if (clean === '/') return <Landing />;
   if (clean === '/masuk' || clean === '/daftar') {

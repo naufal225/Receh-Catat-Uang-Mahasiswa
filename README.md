@@ -169,7 +169,7 @@ backend/
    │     ├─ store/                 MySQL + schema.sql (ter-embed) + migrasi kolom milik modul
    │     ├─ api/                   Handler HTTP + routes.go
    │     └─ report/                Tata letak laporan PDF bulanan
-   ├─ platform/                    cache, keymutex, ratelimit, geoip, googleoauth, useragent, pdf (penulis PDF minimal)
+   ├─ platform/                    cache, keymutex, ratelimit, geoip, googleoauth, payment/{mock,midtrans,xendit}, useragent, pdf
    ├─ config/                      Env + .env (APP_NAME, DB_*, BILLING_ENABLED, GOOGLE_*, …)
    └─ app/                         Composition root (app.go) + daftar modul (modules.go)
 ```
@@ -278,10 +278,55 @@ Premium didapat dari tabel `entitlements` (riwayat tidak pernah dihapus; pencabu
   Penukaran mengunci baris kode (`SELECT … FOR UPDATE`), sehingga kuota tidak bisa terlewati walau
   ditukar bersamaan (diuji 30 penukaran paralel, kuota 5 → tepat 5 berhasil); satu akun satu kali per kode
   (unique index); 10 percobaan salah per jam per akun.
-- **Berbayar**: disiapkan (`source='paid'`), payment gateway menyusul.
+- **Berbayar** (`source='paid'`): lewat Midtrans, Xendit, atau gateway tiruan; lihat 3-P.
 
 Dengan `BILLING_ENABLED=false`, menu Langganan disembunyikan, semua batas hilang, dan admin tetap bisa
 melihat datanya.
+
+### 3-P. Pembayaran (billing)
+
+Paket **Pro** dibeli per **workspace** oleh **owner**-nya (admin dan anggota hanya melihat status).
+Katalog ada di `backend/internal/config/catalog.go` (data biasa: harga, label, hari tenggang), jadi
+pembeli template mengubah harga tanpa menyentuh logika. ID paket di database tetap `free`/`premium`;
+nama "Pro" hanya tampilan.
+
+| Hal | Perilaku |
+|---|---|
+| Harga | Pro bulanan Rp19.000, tahunan Rp190.000 (bayar 10 bulan, dapat 12) |
+| Periode | **Sekali bayar per periode**, bukan tagihan otomatis. Bayar lebih awal menumpuk dari akhir periode berjalan, jadi sisa hari tidak hilang |
+| Masa tenggang | 7 hari setelah periode habis: fitur Pro tetap terbuka, lalu otomatis kembali ke Gratis (data tidak dihapus; hanya membuat yang baru ditolak) |
+| Pengingat | Notifikasi ke owner pada H-7, saat masa tenggang, dan saat berakhir (satu kali per periode) |
+| Komplimen & kode | Tetap berlaku (berlaku untuk akun, `entitlements.org_id` NULL); pembayaran berlaku untuk satu workspace (`org_id` terisi). Yang paling lama menang |
+| Pindah owner | Workspace berbayar tetap Pro; owner baru yang mengelola |
+
+**Alur.** `POST /api/billing/checkout {priceId}` membuat satu *payment* `pending` per workspace
+(dikunci lewat baris `organizations`, jadi dua klik bersamaan tidak membuat dua), memanggil gateway,
+dan mengembalikan `checkoutUrl`. Gateway memanggil `POST /api/billing/webhook/{provider}`. Webhook **hanya petunjuk**:
+tanda tangan diverifikasi, lalu server bertanya langsung ke gateway (`Fetch`) dan mencocokkan jumlah; baru
+setelah itu `Settle` (satu transaksi: kunci org → payment → subscription) mengaktifkan periode dan membuat entitlement.
+Event yang sama dua kali (`webhook_events`, unik per `provider+event_id`) tidak berefek. Pembayaran yang tiba
+setelah checkout kedaluwarsa tetap dihormati (uangnya sudah masuk) dan dicatat. Jumlah yang tidak cocok tidak
+memberi apa pun dan masuk audit (`payment_mismatch`). Webhook yang hilang ditutup `BillingService.Sweep`
+(tiap 10 menit) dan tombol "Saya sudah bayar".
+
+| Provider | `BILLING_PROVIDER` | Catatan |
+|---|---|---|
+| Mock | `mock` (default) | Halaman bayar tiruan di aplikasi; menolak jalan bila `COOKIE_SECURE=true` kecuali `MOCK_ALLOW_PROD=true` |
+| Midtrans | `midtrans` | Snap (`redirect_url`, tanpa JS popup), status lewat Core API; tanda tangan `SHA512(order_id+status_code+gross_amount+ServerKey)` |
+| Xendit | `xendit` | Invoice API v2; header `x-callback-token` dibandingkan dengan token dashboard (waktu konstan). **Belum dicocokkan dengan dokumentasi terbaru**, uji di sandbox (lihat `docs/SETUP-CHECKLIST.md`) |
+
+Tanpa SDK: adaptor memakai `net/http` (`internal/platform/payment/{mock,midtrans,xendit}`), base URL bisa
+diganti sehingga tes memakai server tiruan. Menambah gateway = implementasi `domain.PaymentProvider`
+(`Name`, `CreateCheckout`, `Cancel`, `Fetch`, `ParseWebhook`) lalu satu `case` di `cmd/api/main.go`.
+
+Konfigurasi: `BILLING_PROVIDER`, `PUBLIC_BASE_URL`, `MIDTRANS_SERVER_KEY`, `MIDTRANS_ENV`, `XENDIT_SECRET_KEY`,
+`XENDIT_CALLBACK_TOKEN` (lihat `backend/.env.example`; kunci hanya di `backend/.env`). Provider yang dipilih tapi kuncinya
+kosong → server menolak start dengan pesan jelas. Halaman admin **Pembayaran** menunjukkan kunci mana yang terisi (ya/tidak,
+tidak pernah nilainya) dan URL webhook untuk ditempel ke dashboard penyedia. Di luar cakupan: tagihan otomatis (kartu tersimpan)
+dan refund otomatis (lakukan lewat dashboard penyedia, lalu cabut Pro dari halaman admin bila perlu).
+
+Tabel baru: `payments` (salinan nama workspace dan email pembayar, bertahan walau workspace/akun dihapus),
+`subscriptions`, `webhook_events`; kolom baru `entitlements.org_id` (migrasi aditif, data lama tidak berubah).
 
 ### 3a. Transfer & biaya admin (keputusan)
 

@@ -53,7 +53,7 @@ func Allows(limit, current int) bool { return limit == Unlimited || current < li
 type EntitlementSource string
 
 const (
-	SourcePaid EntitlementSource = "paid" // A payment (payment gateway, later).
+	SourcePaid EntitlementSource = "paid" // A payment through a gateway.
 	SourceComp EntitlementSource = "comp" // Granted by an admin, e.g. family.
 	SourceCode EntitlementSource = "code" // Redeemed from a promo code.
 )
@@ -61,8 +61,12 @@ const (
 // Entitlement is one premium period. EndsAt nil means it never ends; a revoked
 // entitlement stays as history but no longer counts.
 type Entitlement struct {
-	ID          int64             `json:"id"`
-	UserID      int64             `json:"userId"`
+	ID     int64 `json:"id"`
+	UserID int64 `json:"userId"`
+	// OrgID nil: the entitlement belongs to the account and counts in every
+	// workspace the account owns (comps, codes). Set: only that workspace
+	// (a payment).
+	OrgID       *int64            `json:"orgId"`
 	Source      EntitlementSource `json:"source"`
 	Plan        Plan              `json:"plan"`
 	StartsAt    time.Time         `json:"startsAt"`
@@ -118,8 +122,9 @@ type PromoCode struct {
 
 type EntitlementRepository interface {
 	Create(ctx context.Context, e *Entitlement) error
-	// ActiveFor returns the active entitlement that lasts longest at time t.
-	ActiveFor(ctx context.Context, userID int64, t time.Time) (*Entitlement, error)
+	// ActiveFor returns the active entitlement that lasts longest at time t for
+	// a workspace: the owner's account-wide ones plus those of the workspace.
+	ActiveFor(ctx context.Context, ownerID, orgID int64, t time.Time) (*Entitlement, error)
 	ListForUser(ctx context.Context, userID int64) ([]Entitlement, error)
 	ByID(ctx context.Context, id int64) (*Entitlement, error)
 	Revoke(ctx context.Context, id int64, at time.Time) (bool, error)

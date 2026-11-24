@@ -48,6 +48,8 @@ func writeError(w http.ResponseWriter, err error) {
 		status = http.StatusConflict
 	case domain.KindTooMany:
 		status = http.StatusTooManyRequests
+	case domain.KindUnavailable:
+		status = http.StatusBadGateway
 	}
 	writeJSON(w, status, errorBody{Code: app.Code, Message: app.Message, Field: app.Field})
 }

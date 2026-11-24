@@ -22,6 +22,7 @@ export default function Landing() {
         <nav aria-label="Navigasi">
           <a href="#fitur" className="btn btn-quiet hide-sm">Fitur</a>
           <a href="#cara" className="btn btn-quiet hide-sm">Cara pakai</a>
+          <Link to="/harga" className="btn btn-quiet hide-sm">Harga</Link>
           {home ? (
             <Link to={home} className="btn btn-primary">Buka aplikasi</Link>
           ) : (
