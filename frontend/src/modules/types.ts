@@ -16,6 +16,8 @@ export interface NavItem {
   icon: IconName;
   /** Shown in the mobile bottom bar with this short label (max ~4 items in total). */
   short?: string;
+  /** Sidebar section label; consecutive items with the same group share one section. */
+  group?: string;
 }
 
 export interface PrimaryAction {
