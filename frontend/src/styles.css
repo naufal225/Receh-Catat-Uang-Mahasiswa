@@ -970,8 +970,25 @@ dialog.modal[open] {
 .nav-link[aria-current='page'] svg {
   color: var(--ink);
 }
+/* The menu scrolls on its own; the brand/actions above and the profile below stay put. */
+.side-nav {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin: 0 -8px;
+  padding: 0 8px 8px;
+  scrollbar-width: thin;
+}
+.nav-group {
+  display: grid;
+  gap: 2px;
+}
+.nav-group + .nav-group {
+  margin-top: 6px;
+}
 .nav-section {
-  margin: 18px 12px 6px;
+  margin: 12px 12px 4px;
   font-size: 11.5px;
   font-weight: 700;
   letter-spacing: 0.08em;
@@ -979,7 +996,7 @@ dialog.modal[open] {
   color: var(--muted);
 }
 .sidebar-foot {
-  margin-top: auto;
+  flex: none;
   display: grid;
   gap: 8px;
   padding-top: 16px;

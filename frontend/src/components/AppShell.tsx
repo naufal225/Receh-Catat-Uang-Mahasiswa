@@ -8,23 +8,34 @@ import { navigate, useLocation } from '../lib/router';
 import { Icon, Logo, type IconName } from './Icon';
 import { initial, Link } from './ui';
 
-type NavItem = { to: string; label: string; icon: IconName; short?: string };
+type NavItem = { to: string; label: string; icon: IconName; short?: string; group: string };
 
 const userNav: NavItem[] = [
-  { to: '/app', label: 'Ringkasan', icon: 'home', short: 'Ringkasan' },
-  { to: '/app/transaksi', label: 'Riwayat transaksi', icon: 'list', short: 'Riwayat' },
-  { to: '/app/dompet', label: 'Dompet', icon: 'wallet', short: 'Dompet' },
-  { to: '/app/rutin', label: 'Rutin & rencana', icon: 'repeat', short: 'Rutin' },
-  { to: '/app/kategori', label: 'Kategori', icon: 'tag' },
-  { to: '/app/laporan', label: 'Laporan bulanan', icon: 'file' },
-  { to: '/app/keamanan', label: 'Perangkat & keamanan', icon: 'device' },
+  { to: '/app', label: 'Ringkasan', icon: 'home', short: 'Ringkasan', group: 'Utama' },
+  { to: '/app/transaksi', label: 'Riwayat transaksi', icon: 'list', short: 'Riwayat', group: 'Utama' },
+  { to: '/app/dompet', label: 'Dompet', icon: 'wallet', short: 'Dompet', group: 'Kelola' },
+  { to: '/app/rutin', label: 'Rutin & rencana', icon: 'repeat', short: 'Rutin', group: 'Kelola' },
+  { to: '/app/kategori', label: 'Kategori', icon: 'tag', group: 'Kelola' },
+  { to: '/app/laporan', label: 'Laporan bulanan', icon: 'file', group: 'Laporan' },
+  { to: '/app/keamanan', label: 'Perangkat & keamanan', icon: 'device', group: 'Akun' },
 ];
 
 const adminNav: NavItem[] = [
-  { to: '/admin', label: 'Pengguna', icon: 'users', short: 'Pengguna' },
-  { to: '/admin/audit', label: 'Audit log', icon: 'shield', short: 'Audit' },
-  { to: '/admin/keamanan', label: 'Perangkat saya', icon: 'device', short: 'Perangkat' },
+  { to: '/admin', label: 'Pengguna', icon: 'users', short: 'Pengguna', group: 'Panel admin' },
+  { to: '/admin/audit', label: 'Audit log', icon: 'shield', short: 'Audit', group: 'Panel admin' },
+  { to: '/admin/keamanan', label: 'Perangkat saya', icon: 'device', short: 'Perangkat', group: 'Akun' },
 ];
+
+// Consecutive items with the same group share one labelled section.
+function groupNav(items: NavItem[]): { label: string; items: NavItem[] }[] {
+  const out: { label: string; items: NavItem[] }[] = [];
+  for (const n of items) {
+    const last = out[out.length - 1];
+    if (last && last.label === n.group) last.items.push(n);
+    else out.push({ label: n.group, items: [n] });
+  }
+  return out;
+}
 
 function ThemeToggle() {
   const [theme, setTheme] = useStoredState<'light' | 'dark' | ''>('receh-theme', '');
@@ -68,6 +79,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   }
 
   const mobileItems = nav.filter((n) => n.short);
+  const sections = groupNav(nav);
 
   return (
     <div className="shell">
@@ -80,12 +92,18 @@ export function AppShell({ children }: { children: ReactNode }) {
             <Icon name="plus" size={18} /> Catat transaksi
           </button>
         )}
-        {isAdmin && <div className="nav-section">Panel admin</div>}
-        {nav.map((n) => (
-          <Link key={n.to} to={n.to} className="nav-link" aria-current={current(n.to) ? 'page' : undefined}>
-            <Icon name={n.icon} /> {n.label}
-          </Link>
-        ))}
+        <nav className="side-nav" aria-label="Menu">
+          {sections.map((sec) => (
+            <section key={sec.label} className="nav-group" aria-labelledby={`nav-${sec.label}`}>
+              <h2 className="nav-section" id={`nav-${sec.label}`}>{sec.label}</h2>
+              {sec.items.map((n) => (
+                <Link key={n.to} to={n.to} className="nav-link" aria-current={current(n.to) ? 'page' : undefined}>
+                  <Icon name={n.icon} /> {n.label}
+                </Link>
+              ))}
+            </section>
+          ))}
+        </nav>
         <div className="sidebar-foot">
           <div className="user-chip">
             <div className="avatar">{initial(user?.name ?? '')}</div>
