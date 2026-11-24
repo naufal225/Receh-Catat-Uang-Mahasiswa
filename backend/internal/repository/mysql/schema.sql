@@ -171,3 +171,56 @@ CREATE TABLE IF NOT EXISTS org_invitations (
     CONSTRAINT fk_invite_by FOREIGN KEY (invited_by) REFERENCES users (id) ON DELETE SET NULL,
     CONSTRAINT ck_invite_role CHECK (role IN ('admin', 'member'))
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci;
+
+-- Billing. A payment is one checkout for one period of one workspace. The org
+-- and payer are kept as a name/email snapshot too, so the books survive the
+-- deletion of a workspace or an account.
+CREATE TABLE IF NOT EXISTS payments (
+    id           BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    org_id       BIGINT       NULL,
+    org_name     VARCHAR(80)  NOT NULL DEFAULT '',
+    payer_id     BIGINT       NULL,
+    payer_email  VARCHAR(254) NOT NULL DEFAULT '',
+    price_id     VARCHAR(32)  NOT NULL,
+    amount       BIGINT       NOT NULL,
+    currency     CHAR(3)      NOT NULL,
+    provider     VARCHAR(16)  NOT NULL,
+    provider_ref VARCHAR(100) NOT NULL DEFAULT '',
+    external_id  VARCHAR(64)  NOT NULL,
+    status       VARCHAR(8)   NOT NULL DEFAULT 'pending',
+    checkout_url VARCHAR(500) NOT NULL DEFAULT '',
+    period_start BIGINT       NULL,
+    period_end   BIGINT       NULL,
+    expires_at   BIGINT       NOT NULL,
+    paid_at      BIGINT       NULL,
+    created_at   BIGINT       NOT NULL,
+    UNIQUE KEY uq_payment_external (external_id),
+    KEY idx_payment_org (org_id, status),
+    KEY idx_payment_status (status, created_at),
+    CONSTRAINT fk_payment_org FOREIGN KEY (org_id) REFERENCES organizations (id) ON DELETE SET NULL,
+    CONSTRAINT fk_payment_payer FOREIGN KEY (payer_id) REFERENCES users (id) ON DELETE SET NULL,
+    CONSTRAINT ck_payment_status CHECK (status IN ('pending', 'paid', 'expired', 'failed')),
+    CONSTRAINT ck_payment_amount CHECK (amount > 0)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci;
+
+-- The paid state of a workspace: one row, extended by every payment.
+CREATE TABLE IF NOT EXISTS subscriptions (
+    org_id               BIGINT      NOT NULL PRIMARY KEY,
+    price_id             VARCHAR(32) NOT NULL,
+    period_end           BIGINT      NOT NULL,
+    cancel_at_period_end TINYINT(1)  NOT NULL DEFAULT 0,
+    state                VARCHAR(8)  NOT NULL DEFAULT 'active',
+    last_payment_id      BIGINT      NULL,
+    updated_at           BIGINT      NOT NULL,
+    KEY idx_subscription_end (state, period_end),
+    CONSTRAINT fk_subscription_org FOREIGN KEY (org_id) REFERENCES organizations (id) ON DELETE CASCADE,
+    CONSTRAINT fk_subscription_payment FOREIGN KEY (last_payment_id) REFERENCES payments (id) ON DELETE SET NULL
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci;
+
+-- Gateway notifications already handled; (provider, event_id) is applied once.
+CREATE TABLE IF NOT EXISTS webhook_events (
+    provider    VARCHAR(16) NOT NULL,
+    event_id    VARCHAR(100) NOT NULL,
+    received_at BIGINT      NOT NULL,
+    PRIMARY KEY (provider, event_id)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci;

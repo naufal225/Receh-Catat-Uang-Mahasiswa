@@ -36,6 +36,7 @@ const adminNav: NavItem[] = [
   { to: '/admin', label: 'Pengguna', icon: 'users', short: 'Pengguna' },
   { to: '/admin/audit', label: 'Audit log', icon: 'shield', short: 'Audit' },
   { to: '/admin/kode', label: 'Kode undangan', icon: 'sparkle', short: 'Kode' },
+  { to: '/admin/pembayaran', label: 'Pembayaran', icon: 'wallet', short: 'Bayar' },
   { to: '/admin/keamanan', label: 'Perangkat saya', icon: 'device', short: 'Perangkat' },
 ];
 

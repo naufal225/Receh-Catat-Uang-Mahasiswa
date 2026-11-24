@@ -164,6 +164,15 @@ func (s *OrgService) OwnerOf(ctx context.Context, orgID int64) (int64, error) {
 	return o.OwnerID, nil
 }
 
+// Org returns a workspace by id (no membership check; callers do that).
+func (s *OrgService) Org(ctx context.Context, orgID int64) (*domain.Org, error) {
+	o, err := s.orgs.ByID(ctx, orgID)
+	if err != nil {
+		return nil, notFoundOr(err, "Workspace tidak ditemukan.")
+	}
+	return o, nil
+}
+
 // MemberIDs lists the users of an org (for notification fan-out).
 func (s *OrgService) MemberIDs(ctx context.Context, orgID int64) ([]int64, error) {
 	return s.orgs.MemberIDs(ctx, orgID)

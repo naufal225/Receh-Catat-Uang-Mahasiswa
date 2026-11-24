@@ -22,6 +22,8 @@ const (
 	KindNotFound
 	KindConflict
 	KindTooMany
+	// KindUnavailable: a service we depend on (a payment gateway) failed; try later.
+	KindUnavailable
 )
 
 func newErr(kind ErrorKind, code, msg string) *AppError {

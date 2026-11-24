@@ -2689,3 +2689,59 @@ dialog.modal[open] {
     margin-left: auto;
   }
 }
+
+/* Billing */
+.price-card {
+  display: grid;
+  gap: 14px;
+  max-width: 520px;
+}
+.price-amount strong {
+  font-size: 30px;
+  letter-spacing: -0.02em;
+}
+.pricing {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 28px 20px 64px;
+}
+.pricing h1 {
+  font-size: 36px;
+  margin-bottom: 6px;
+}
+.pricing-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  align-items: stretch;
+}
+.pricing-card {
+  display: grid;
+  gap: 14px;
+  align-content: start;
+}
+.pricing-card.is-featured {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 12%, var(--surface)), var(--surface) 60%);
+}
+.pricing-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 8px;
+  font-size: 14.5px;
+}
+.pricing-list li {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.pricing-list li.off {
+  color: var(--muted);
+}
+@media (max-width: 720px) {
+  .pricing-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

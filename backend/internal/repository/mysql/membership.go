@@ -14,19 +14,22 @@ type EntitlementRepo struct{ db *sql.DB }
 func NewEntitlementRepo(db *sql.DB) *EntitlementRepo { return &EntitlementRepo{db} }
 
 const entSelect = `
-	SELECT e.id, e.user_id, e.source, e.plan, e.starts_at, e.ends_at, e.note, e.granted_by,
+	SELECT e.id, e.user_id, e.org_id, e.source, e.plan, e.starts_at, e.ends_at, e.note, e.granted_by,
 	       e.promo_code_id, COALESCE(p.code, ''), e.revoked_at, e.created_at
 	FROM entitlements e LEFT JOIN promo_codes p ON p.id = e.promo_code_id`
 
 func scanEnt(row interface{ Scan(...any) error }) (*domain.Entitlement, error) {
 	var e domain.Entitlement
 	var starts, created int64
-	var ends, revoked, grantedBy, promoID sql.NullInt64
-	if err := row.Scan(&e.ID, &e.UserID, &e.Source, &e.Plan, &starts, &ends, &e.Note, &grantedBy,
+	var ends, revoked, grantedBy, promoID, orgID sql.NullInt64
+	if err := row.Scan(&e.ID, &e.UserID, &orgID, &e.Source, &e.Plan, &starts, &ends, &e.Note, &grantedBy,
 		&promoID, &e.PromoCode, &revoked, &created); err != nil {
 		return nil, mapNoRows(err)
 	}
 	e.StartsAt, e.CreatedAt = fromUnix(starts), fromUnix(created)
+	if orgID.Valid {
+		e.OrgID = &orgID.Int64
+	}
 	if ends.Valid {
 		t := fromUnix(ends.Int64)
 		e.EndsAt = &t
@@ -56,9 +59,9 @@ func insertEnt(ctx context.Context, x interface {
 }, e *domain.Entitlement) error {
 	e.CreatedAt = time.Now().UTC()
 	res, err := x.ExecContext(ctx,
-		`INSERT INTO entitlements (user_id, source, plan, starts_at, ends_at, note, granted_by, promo_code_id, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		e.UserID, e.Source, e.Plan, unix(e.StartsAt), nullTime(e.EndsAt), e.Note, e.GrantedBy, e.PromoCodeID, unix(e.CreatedAt))
+		`INSERT INTO entitlements (user_id, org_id, source, plan, starts_at, ends_at, note, granted_by, promo_code_id, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		e.UserID, e.OrgID, e.Source, e.Plan, unix(e.StartsAt), nullTime(e.EndsAt), e.Note, e.GrantedBy, e.PromoCodeID, unix(e.CreatedAt))
 	if err != nil {
 		return err
 	}
@@ -70,10 +73,13 @@ func (r *EntitlementRepo) Create(ctx context.Context, e *domain.Entitlement) err
 	return insertEnt(ctx, r.db, e)
 }
 
-func (r *EntitlementRepo) ActiveFor(ctx context.Context, userID int64, t time.Time) (*domain.Entitlement, error) {
+// ActiveFor looks at the owner's account-wide entitlements (org_id NULL) and at
+// those that belong to this workspace, and returns the one that lasts longest.
+func (r *EntitlementRepo) ActiveFor(ctx context.Context, ownerID, orgID int64, t time.Time) (*domain.Entitlement, error) {
 	return scanEnt(r.db.QueryRowContext(ctx, entSelect+`
-		WHERE e.user_id = ? AND e.revoked_at IS NULL AND e.starts_at <= ? AND (e.ends_at IS NULL OR e.ends_at > ?)
-		ORDER BY e.ends_at IS NULL DESC, e.ends_at DESC, e.id DESC LIMIT 1`, userID, t.Unix(), t.Unix()))
+		WHERE ((e.user_id = ? AND e.org_id IS NULL) OR e.org_id = ?)
+		  AND e.revoked_at IS NULL AND e.starts_at <= ? AND (e.ends_at IS NULL OR e.ends_at > ?)
+		ORDER BY e.ends_at IS NULL DESC, e.ends_at DESC, e.id DESC LIMIT 1`, ownerID, orgID, t.Unix(), t.Unix()))
 }
 
 func (r *EntitlementRepo) ListForUser(ctx context.Context, userID int64) ([]domain.Entitlement, error) {

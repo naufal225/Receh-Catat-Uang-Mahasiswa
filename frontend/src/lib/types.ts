@@ -184,3 +184,62 @@ export interface OrgInvite {
   expiresAt: string;
   createdAt: string;
 }
+
+// ---- Billing ----------------------------------------------------------------------
+
+export type PaymentStatus = 'pending' | 'paid' | 'expired' | 'failed';
+/** Where a workspace's subscription stands now (the server derives it from the clock). */
+export type SubState = 'active' | 'ending' | 'grace' | 'expired' | 'none';
+
+export interface PricePoint {
+  id: string;
+  plan: 'free' | 'premium';
+  interval: 'month' | 'year';
+  /** Whole units of the catalog currency. */
+  amount: number;
+  label: Localized;
+}
+
+export interface CatalogView {
+  enabled: boolean;
+  provider?: string;
+  catalog: { planName: Localized; currency: string; prices: PricePoint[]; graceDays: number; renewalNoticeDays: number };
+  defs: LimitDef[];
+}
+
+export interface Payment {
+  id: number;
+  orgId: number;
+  orgName: string;
+  payerEmail: string;
+  priceId: string;
+  amount: number;
+  currency: string;
+  provider: string;
+  externalId: string;
+  status: PaymentStatus;
+  checkoutUrl?: string;
+  periodStart: string | null;
+  periodEnd: string | null;
+  expiresAt: string;
+  paidAt: string | null;
+  createdAt: string;
+}
+
+export interface BillingOverview {
+  enabled: boolean;
+  isOwner: boolean;
+  provider?: string;
+  subscription: { state: SubState; priceId: string; periodEnd: string; graceEndsAt: string; cancelAtPeriodEnd: boolean } | null;
+  pending: Payment | null;
+  payments: Payment[];
+}
+
+export interface IntegrationStatus {
+  enabled: boolean;
+  provider: string;
+  mode: string;
+  keys: { name: string; set: boolean }[];
+  webhookUrl: string;
+  returnUrl: string;
+}

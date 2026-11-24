@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"receh/internal/config"
 	deliveryhttp "receh/internal/delivery/http"
 	"receh/internal/domain"
 	"receh/internal/modules"
@@ -38,6 +39,12 @@ type Params struct {
 	Google domain.OAuthProvider
 	// BillingEnabled false = personal edition (everyone premium).
 	BillingEnabled bool
+	// Payments is the gateway checkouts go through; nil means no online
+	// payment (promo codes and comps still work). Catalog zero = config.ProductCatalog().
+	Payments      domain.PaymentProvider
+	Catalog       domain.Catalog
+	PublicURL     string
+	PaymentStatus usecase.IntegrationStatus
 	// AppName is the product name modules print (reports, messages).
 	AppName string
 	// Modules overrides the module list (nil = Modules()).
@@ -50,6 +57,7 @@ type App struct {
 	Auth          *usecase.AuthService
 	Membership    *usecase.MembershipService
 	Notifications *usecase.NotificationService
+	Billing       *usecase.BillingService
 	modules       map[string]modules.Module
 	audit         *usecase.AuditRecorder
 	janitors      []func(context.Context)
@@ -101,6 +109,14 @@ func New(p Params) (*App, error) {
 		users, orgs, audit, p.Clock)
 	notifications := usecase.NewNotificationService(mysql.NewNotificationRepo(p.DB), users, orgs, p.Clock)
 	*changes = append(*changes, notifications)
+	if len(p.Catalog.Prices) == 0 {
+		p.Catalog = config.ProductCatalog()
+	}
+	billing := usecase.NewBillingService(usecase.BillingConfig{
+		Enabled: p.BillingEnabled, Catalog: p.Catalog, PublicURL: p.PublicURL, Provider: p.Payments, Status: p.PaymentStatus,
+		Defs: membership.Defs,
+	}, mysql.NewBillingRepo(p.DB), orgs, users, audit, p.Clock)
+	notifications.AddSource(billing)
 
 	svc := deliveryhttp.Services{
 		Auth:          auth,
@@ -108,6 +124,7 @@ func New(p Params) (*App, error) {
 		Membership:    membership,
 		Notifications: notifications,
 		Orgs:          orgs,
+		Billing:       billing,
 	}
 	server := deliveryhttp.NewServer(svc, deliveryhttp.Options{
 		CookieSecure: p.CookieSecure, TrustProxy: p.TrustProxy, StaticDir: p.StaticDir,
@@ -131,7 +148,7 @@ func New(p Params) (*App, error) {
 
 	return &App{
 		Handler: server.Handler(), Admin: svc.Admin, Auth: auth, Membership: membership,
-		Notifications: notifications, modules: byName, audit: audit,
+		Notifications: notifications, Billing: billing, modules: byName, audit: audit,
 		janitors: append(append(janitors,
 			func(ctx context.Context) { users.Cache().RunJanitor(ctx, time.Minute) },
 			func(ctx context.Context) { sessions.Cache().RunJanitor(ctx, time.Minute) },
@@ -139,6 +156,7 @@ func New(p Params) (*App, error) {
 			orgs.RunJanitor,
 			notifications.RunWorker,
 			func(ctx context.Context) { notifications.RunScheduler(ctx, 10*time.Minute) },
+			func(ctx context.Context) { billing.RunSweeper(ctx, 10*time.Minute) },
 		), host.Jobs()...),
 	}, nil
 }

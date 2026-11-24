@@ -19,6 +19,12 @@ const events: Record<string, { label: string; cls: string }> = {
   premium_revoked: { label: 'Admin: cabut Premium', cls: 'badge-warn' },
   promo_created: { label: 'Admin: buat kode', cls: 'badge-neutral' },
   promo_redeemed: { label: 'Tukar kode', cls: 'badge-income' },
+  payment_created: { label: 'Buat pembayaran', cls: 'badge-neutral' },
+  payment_paid: { label: 'Pembayaran lunas', cls: 'badge-income' },
+  payment_expired: { label: 'Pembayaran kedaluwarsa', cls: 'badge-neutral' },
+  payment_mismatch: { label: 'Jumlah bayar tidak cocok', cls: 'badge-danger' },
+  subscription_stopped: { label: 'Berhenti perpanjangan', cls: 'badge-warn' },
+  subscription_resumed: { label: 'Lanjut perpanjangan', cls: 'badge-accent' },
   admin_user_created: { label: 'Admin: buat akun', cls: 'badge-neutral' },
   admin_status_changed: { label: 'Admin: ubah status', cls: 'badge-warn' },
 };

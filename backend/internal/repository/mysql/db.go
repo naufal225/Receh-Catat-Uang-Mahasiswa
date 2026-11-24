@@ -183,6 +183,10 @@ type Migration struct{ Table, Column, DDL string }
 var migrations = []Migration{
 	{"users", "google_sub", "ALTER TABLE users ADD COLUMN google_sub VARCHAR(64) NULL AFTER password_hash, ADD UNIQUE KEY uq_users_google (google_sub)"},
 	{"notification_prefs", "settings", "ALTER TABLE notification_prefs ADD COLUMN settings TEXT NULL"},
+	// A payment belongs to one workspace; comps and codes (NULL) stay account-wide.
+	{"entitlements", "org_id", "ALTER TABLE entitlements ADD COLUMN org_id BIGINT NULL AFTER user_id, " +
+		"ADD KEY idx_entitlements_org (org_id, revoked_at), " +
+		"ADD CONSTRAINT fk_ent_org FOREIGN KEY (org_id) REFERENCES organizations (id) ON DELETE CASCADE"},
 }
 
 // Migrate applies column migrations idempotently (modules pass their own).

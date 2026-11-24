@@ -18,6 +18,7 @@ type Services struct {
 	Membership    *usecase.MembershipService
 	Notifications *usecase.NotificationService
 	Orgs          *usecase.OrgService
+	Billing       *usecase.BillingService
 }
 
 type Options struct {
@@ -77,6 +78,19 @@ func (s *Server) Handler() http.Handler {
 
 	mux.HandleFunc("GET /api/membership", s.orgRead(s.membership))
 	mux.HandleFunc("POST /api/membership/redeem", s.orgWrite(s.redeemCode))
+
+	mux.HandleFunc("GET /api/billing/catalog", s.billingCatalog)
+	mux.HandleFunc("GET /api/billing", s.orgRead(s.billingOverview))
+	mux.HandleFunc("POST /api/billing/checkout", s.orgWrite(s.billingCheckout))
+	mux.HandleFunc("POST /api/billing/payments/{id}/cancel", s.orgWrite(s.billingCancelPayment))
+	mux.HandleFunc("POST /api/billing/payments/{id}/sync", s.orgWrite(s.billingSyncPayment))
+	mux.HandleFunc("POST /api/billing/subscription/stop", s.orgWrite(s.billingSetRenewal(true)))
+	mux.HandleFunc("POST /api/billing/subscription/resume", s.orgWrite(s.billingSetRenewal(false)))
+	mux.HandleFunc("POST /api/billing/webhook/{provider}", s.billingWebhook)
+	mux.HandleFunc("POST /api/billing/mock/{ref}/{outcome}", s.billingMockComplete)
+	mux.HandleFunc("GET /api/admin/payments", s.admin(s.adminPayments))
+	mux.HandleFunc("POST /api/admin/payments/{id}/sync", s.admin(s.adminSyncPayment))
+	mux.HandleFunc("GET /api/admin/billing/status", s.admin(s.adminBillingStatus))
 
 	mux.HandleFunc("GET /api/admin/users", s.admin(s.adminListUsers))
 	mux.HandleFunc("POST /api/admin/users", s.admin(s.adminCreateUser))

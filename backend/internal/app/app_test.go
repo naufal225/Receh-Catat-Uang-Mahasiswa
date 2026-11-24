@@ -113,6 +113,7 @@ type env struct {
 	srv   *httptest.Server
 	app   *app.App
 	clock *fakeClock
+	db    *sql.DB
 }
 
 const adminEmail, adminPass = "admin@test.local", "admin-password-1"
@@ -139,7 +140,7 @@ func newEnv(t *testing.T, opts ...func(*app.Params)) *env {
 		a.Close()
 		db.Close()
 	})
-	return &env{t: t, srv: srv, app: a, clock: clock}
+	return &env{t: t, srv: srv, app: a, clock: clock, db: db}
 }
 
 type client struct {
