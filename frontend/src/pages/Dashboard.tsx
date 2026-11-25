@@ -169,7 +169,8 @@ export default function Dashboard() {
                   <table className="table">
                     <thead><tr><th>Periode</th><th style={{ textAlign: 'right' }}>Pemasukan</th><th style={{ textAlign: 'right' }}>Pengeluaran</th></tr></thead>
                     <tbody>
-                      {data.buckets.map((b) => (
+                      {/* Newest period first; the chart above stays oldest to newest. */}
+                      {[...data.buckets].reverse().map((b) => (
                         <tr key={b.key}>
                           <td>{b.label}</td>
                           <td className="num" style={{ textAlign: 'right' }}>{formatRp(b.income)}</td>
