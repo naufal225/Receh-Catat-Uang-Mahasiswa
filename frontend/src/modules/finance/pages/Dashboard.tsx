@@ -227,7 +227,7 @@ export default function Dashboard() {
           </div>
 
           {data && data.wallets.length > 0 && (
-            <div style={{ marginTop: 24 }}>
+            <div style={{ marginTop: 34 }}>
               <div className="card-head">
                 <h2 style={{ fontSize: 17, fontFamily: 'var(--font-sans)', fontWeight: 750 }}>Dompetmu</h2>
                 <Link to="/app/dompet" className="btn btn-quiet btn-sm">Kelola</Link>
