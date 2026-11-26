@@ -979,22 +979,25 @@ dialog.modal[open] {
   margin: 0 -8px;
   padding: 0 8px 8px;
 }
-/* Hairline scrollbar: 4px wide, still draggable; the thumb widens a little on hover. */
-.side-nav::-webkit-scrollbar {
+/* Hairline scrollbar for every scroll area (page, sidebar, tables, strips, modals):
+   4px, still draggable, darkens on hover. */
+::-webkit-scrollbar {
   width: 4px;
+  height: 4px;
 }
-.side-nav::-webkit-scrollbar-track {
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
   background: transparent;
 }
-.side-nav::-webkit-scrollbar-thumb {
+::-webkit-scrollbar-thumb {
   border-radius: 4px;
   background: var(--line);
 }
-.side-nav::-webkit-scrollbar-thumb:hover {
+::-webkit-scrollbar-thumb:hover {
   background: var(--muted);
 }
 @supports (-moz-appearance: none) {
-  .side-nav {
+  * {
     scrollbar-width: thin;
     scrollbar-color: var(--line) transparent;
   }
@@ -1435,8 +1438,10 @@ dialog.modal[open] {
   display: flex;
   gap: 12px;
   overflow-x: auto;
-  padding-bottom: 4px;
-  scrollbar-width: thin;
+  /* Room for the active ring / focus outline (up to 6px) so the scroll box doesn't clip it;
+     the negative margin keeps the cards aligned with the heading. */
+  padding: 6px 6px 10px;
+  margin: -6px -6px 0;
 }
 
 /* Wallet card */
