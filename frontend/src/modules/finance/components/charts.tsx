@@ -117,22 +117,16 @@ export function BarChart({ buckets, selected, onSelect }: { buckets: Bucket[]; s
 }
 
 /* ------------------------------------------------------------------ */
-/* Pie chart: category share. Folded to <= 6 slices for readability;   */
-/* the table beside it lists every category.                           */
+/* Pie chart: category share. Every category gets its own slice under  */
+/* its real name, however small its share.                             */
 /* ------------------------------------------------------------------ */
-
-export function foldSlices(slices: CategorySlice[]): CategorySlice[] {
-  if (slices.length <= 6) return slices;
-  const rest = slices.slice(5).reduce((s, c) => s + c.total, 0);
-  return [...slices.slice(0, 5), { categoryId: -1, name: 'Kategori lain', color: 'c0', total: rest }];
-}
 
 export function PieChart({ slices, total, active, onActive, centerLabel }: { slices: CategorySlice[]; total: number; active: number | null; onActive: (id: number | null) => void; centerLabel: string }) {
   const R = 92;
   const C = 110;
   const arcs = useMemo(() => {
     let a = 0;
-    return foldSlices(slices).map((s) => {
+    return slices.map((s) => {
       const sweep = total ? (s.total / total) * Math.PI * 2 : 0;
       const start = a;
       a += sweep;
