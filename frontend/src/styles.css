@@ -1320,9 +1320,16 @@ dialog.modal[open] {
   font-size: 11px;
   font-family: var(--font-sans);
 }
+/* Dragging across bars selects them, not the text; vertical touch scrolling still works. */
+.chart-svg {
+  user-select: none;
+  touch-action: pan-y;
+}
 .bar-hit {
   cursor: pointer;
 }
+/* No ring after a mouse press or drag; keyboard focus shows as the band highlight. */
+.bar-hit:focus,
 .bar-hit:focus-visible {
   outline: none;
 }

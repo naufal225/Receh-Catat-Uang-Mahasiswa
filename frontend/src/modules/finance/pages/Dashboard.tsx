@@ -44,7 +44,7 @@ export default function Dashboard() {
 
   const { data, error, loading, reload } = useFetch<DashboardData>(`/dashboard${qs({ unit, offset, walletId })}&v=${version}`);
 
-  // A clicked bar narrows the pie to that period.
+  // Clicked or dragged bars narrow the pie to that period.
   const [focusSlices, setFocusSlices] = useState<SliceSet | null>(null);
   useEffect(() => {
     setFocusSlices(null);
@@ -72,7 +72,7 @@ export default function Dashboard() {
       <div className="page-head reveal">
         <div>
           <h1>{greeting()}, {user?.name.split(' ')[0]}</h1>
-          <p>Ini gambaran uangmu. Klik batang grafik untuk melihat rincian periode itu.</p>
+          <p>Ini gambaran uangmu. Klik satu batang grafik, atau seret melewati beberapa, untuk melihat rinciannya.</p>
         </div>
         {!readOnly && !noWallets && (
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -152,7 +152,7 @@ export default function Dashboard() {
                 </div>
               </div>
               {data ? (
-                <BarChart buckets={data.buckets} selected={focus?.key ?? null} onSelect={setFocus} />
+                <BarChart buckets={data.buckets} selected={focus} onSelect={setFocus} />
               ) : (
                 <Skeleton h={250} />
               )}
