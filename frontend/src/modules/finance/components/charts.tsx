@@ -30,8 +30,25 @@ function barPath(x: number, y: number, w: number, h: number, r: number) {
   return `M${x},${y + h}V${y + rr}Q${x},${y} ${x + rr},${y}H${x + w - rr}Q${x + w},${y} ${x + w},${y + rr}V${y + h}Z`;
 }
 
-export function BarChart({ buckets, selected, onSelect }: { buckets: Bucket[]; selected: string | null; onSelect: (b: Bucket | null) => void }) {
+/** One bucket, or a dragged run of neighbouring buckets folded into one period. */
+function mergeBuckets(run: Bucket[]): Bucket {
+  if (run.length === 1) return run[0];
+  const first = run[0];
+  const last = run[run.length - 1];
+  return {
+    key: `${first.key}..${last.key}`,
+    label: `${first.label} – ${last.label}`,
+    from: first.from,
+    to: last.to,
+    income: run.reduce((s, b) => s + b.income, 0),
+    expense: run.reduce((s, b) => s + b.expense, 0),
+  };
+}
+
+/** Click a bar to pick its period; drag across bars to pick all of them. */
+export function BarChart({ buckets, selected, onSelect }: { buckets: Bucket[]; selected: Bucket | null; onSelect: (b: Bucket | null) => void }) {
   const [hover, setHover] = useState<number | null>(null);
+  const [drag, setDrag] = useState<{ start: number; end: number } | null>(null);
   const wrap = useRef<HTMLDivElement>(null);
   const max = niceMax(Math.max(...buckets.map((b) => Math.max(b.income, b.expense)), 0));
   const plotW = W - PAD.left - PAD.right;
@@ -44,13 +61,46 @@ export function BarChart({ buckets, selected, onSelect }: { buckets: Bucket[]; s
   // Thin out x labels when buckets are dense.
   const labelEvery = buckets.length > 12 ? 2 : 1;
 
-  const hb = hover !== null ? buckets[hover] : null;
-  const tipX = hover !== null ? ((PAD.left + band * hover + band / 2) / W) * 100 : 0;
-  const tipY = hb ? (y(Math.max(hb.income, hb.expense)) / H) * 100 : 0;
+  /** The bar under a screen x position, clamped to the first and last bar. */
+  const indexAt = (svg: SVGSVGElement, clientX: number) => {
+    const box = svg.getBoundingClientRect();
+    const x = ((clientX - box.left) / box.width) * W;
+    return Math.max(0, Math.min(buckets.length - 1, Math.floor((x - PAD.left) / band)));
+  };
+  /** Select the bars between two indexes; picking the current selection again clears it. */
+  const pick = (a: number, b: number) => {
+    const next = mergeBuckets(buckets.slice(Math.min(a, b), Math.max(a, b) + 1));
+    onSelect(selected?.key === next.key ? null : next);
+  };
+
+  // The tooltip describes the run being dragged, otherwise the hovered bar.
+  const lo = drag ? Math.min(drag.start, drag.end) : hover;
+  const hi = drag ? Math.max(drag.start, drag.end) : hover;
+  const run = lo !== null && hi !== null ? buckets.slice(lo, hi + 1) : [];
+  const hb = run.length ? mergeBuckets(run) : null;
+  const tipX = lo !== null && hi !== null ? ((PAD.left + (band * (lo + hi + 1)) / 2) / W) * 100 : 0;
+  const tipY = hb ? (y(Math.max(...run.map((b) => Math.max(b.income, b.expense)))) / H) * 100 : 0;
 
   return (
     <div className="chart-wrap" ref={wrap}>
-      <svg className="chart-svg" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Diagram batang pemasukan dan pengeluaran per periode">
+      <svg
+        className="chart-svg"
+        viewBox={`0 0 ${W} ${H}`}
+        role="img"
+        aria-label="Diagram batang pemasukan dan pengeluaran per periode"
+        onPointerMove={(e) => {
+          if (!drag) return;
+          const end = indexAt(e.currentTarget, e.clientX);
+          if (end !== drag.end) setDrag({ ...drag, end });
+        }}
+        onPointerUp={(e) => {
+          if (!drag) return;
+          pick(drag.start, indexAt(e.currentTarget, e.clientX));
+          setDrag(null);
+          setHover(null);
+        }}
+        onPointerCancel={() => setDrag(null)}
+      >
         {ticks.map((t) => (
           <g key={t}>
             <line x1={PAD.left} x2={W - PAD.right} y1={y(t)} y2={y(t)} stroke={t === 0 ? 'var(--viz-axis)' : 'var(--viz-grid)'} strokeWidth={1} />
@@ -61,7 +111,9 @@ export function BarChart({ buckets, selected, onSelect }: { buckets: Bucket[]; s
         ))}
         {buckets.map((b, i) => {
           const cx = PAD.left + band * i + band / 2;
-          const isSel = selected === b.key;
+          const isSel = drag
+            ? i >= Math.min(drag.start, drag.end) && i <= Math.max(drag.start, drag.end)
+            : !!selected && b.from >= selected.from && b.to <= selected.to;
           return (
             <g
               key={b.key}
@@ -74,11 +126,18 @@ export function BarChart({ buckets, selected, onSelect }: { buckets: Bucket[]; s
               onMouseLeave={() => setHover(null)}
               onFocus={() => setHover(i)}
               onBlur={() => setHover(null)}
-              onClick={() => onSelect(isSel ? null : b)}
+              onPointerDown={(e) => {
+                if (e.button !== 0) return;
+                // Capture, so the drag keeps following even outside the chart.
+                e.currentTarget.ownerSVGElement?.setPointerCapture(e.pointerId);
+                setDrag({ start: i, end: i });
+              }}
+              // Mouse and touch go through the pointer events; this serves assistive tech.
+              onClick={(e) => e.detail === 0 && pick(i, i)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault();
-                  onSelect(isSel ? null : b);
+                  pick(i, i);
                 }
               }}
             >
@@ -97,7 +156,7 @@ export function BarChart({ buckets, selected, onSelect }: { buckets: Bucket[]; s
       </svg>
       {hb && (
         <div className="tooltip" style={{ left: `${tipX}%`, top: `${tipY}%` }}>
-          <strong>{hb.from === hb.to ? hb.label : `${hb.label} (${hb.from.slice(5)} – ${hb.to.slice(5)})`}</strong>
+          <strong>{run.length > 1 || hb.from === hb.to ? hb.label : `${hb.label} (${hb.from.slice(5)} – ${hb.to.slice(5)})`}</strong>
           <div>
             <span><i style={{ background: 'var(--viz-income)' }} />Pemasukan</span>
             <span className="num">{formatRp(hb.income)}</span>
