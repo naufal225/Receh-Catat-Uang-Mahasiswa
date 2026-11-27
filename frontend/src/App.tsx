@@ -1,37 +1,56 @@
 // Route table and guards. Public: landing, login, register. /app/* needs a
-// user account; /admin/* needs an admin account.
-import { useEffect, type ReactNode } from 'react';
+// user account; /admin/* needs an admin account. User pages come from the
+// core plus every registered module (src/modules/index.ts).
+import { Fragment, useEffect, type ComponentType, type ReactNode } from 'react';
+import { brand } from './brand';
 import { AppShell } from './components/AppShell';
-import { TransactionModal } from './components/TransactionForm';
 import { Logo } from './components/Icon';
 import { useAuth } from './lib/auth';
 import { navigate, useLocation } from './lib/router';
+import { modules } from './modules';
+import type { ModulePage } from './modules/types';
 import AdminAudit from './pages/AdminAudit';
+import AdminPayments from './pages/AdminPayments';
+import AdminPromos from './pages/AdminPromos';
 import AdminUsers from './pages/AdminUsers';
 import { Login, Register } from './pages/Auth';
-import Categories from './pages/Categories';
-import Dashboard from './pages/Dashboard';
+import Home from './pages/Home';
+import Invite from './pages/Invite';
 import Landing from './pages/Landing';
-import Recurring from './pages/Recurring';
-import Reports from './pages/Reports';
+import MockPay from './pages/MockPay';
+import NotificationSettings from './pages/NotificationSettings';
+import Pricing from './pages/Pricing';
 import Security from './pages/Security';
-import Transactions from './pages/Transactions';
-import Wallets from './pages/Wallets';
+import Subscription from './pages/Subscription';
+import Team from './pages/Team';
+import { takeNext } from './lib/next';
 
-const userPages: Record<string, { el: () => ReactNode; title: string }> = {
-  '/app': { el: Dashboard, title: 'Ringkasan' },
-  '/app/transaksi': { el: Transactions, title: 'Riwayat transaksi' },
-  '/app/dompet': { el: Wallets, title: 'Dompet' },
-  '/app/kategori': { el: Categories, title: 'Kategori' },
-  '/app/rutin': { el: Recurring, title: 'Rutin & rencana' },
-  '/app/laporan': { el: Reports, title: 'Laporan bulanan' },
+const corePages: Record<string, ModulePage> = {
+  '/app': { el: Home, title: 'Beranda' },
+  '/app/tim': { el: Team, title: 'Tim' },
+  '/app/notifikasi': { el: NotificationSettings, title: 'Notifikasi' },
   '/app/keamanan': { el: Security, title: 'Perangkat & keamanan' },
+  '/app/langganan': { el: Subscription, title: 'Langganan' },
+  '/app/langganan/mock': { el: MockPay, title: 'Pembayaran tiruan' },
 };
-const adminPages: Record<string, { el: () => ReactNode; title: string }> = {
+// Module pages win over the core placeholder home.
+const userPages: Record<string, ModulePage> = Object.assign({}, corePages, ...modules.map((m) => m.pages));
+
+const adminPages: Record<string, ModulePage> = {
   '/admin': { el: AdminUsers, title: 'Pengguna' },
   '/admin/audit': { el: AdminAudit, title: 'Audit log' },
+  '/admin/kode': { el: AdminPromos, title: 'Kode undangan' },
+  '/admin/pembayaran': { el: AdminPayments, title: 'Pembayaran' },
   '/admin/keamanan': { el: Security, title: 'Perangkat saya' },
 };
+
+/** Every module provider, nested in registration order. */
+export function ModuleProviders({ children }: { children: ReactNode }) {
+  return modules.reduceRight<ReactNode>((inner, m) => {
+    const P = m.Provider as ComponentType<{ children: ReactNode }> | undefined;
+    return P ? <P>{inner}</P> : inner;
+  }, children);
+}
 
 function Redirect({ to }: { to: string }) {
   useEffect(() => navigate(to, { replace: true }), [to]);
@@ -55,10 +74,21 @@ export default function App() {
   const adminPage = adminPages[clean];
   const title = userPage?.title ?? adminPage?.title;
   useEffect(() => {
-    document.title = title ? `${title} · Receh` : 'Receh · Keuangan mahasiswa';
+    document.title = title ? `${title} · ${brand.name}` : `${brand.name} · ${brand.tagline}`;
   }, [title]);
 
+  // A page waiting for sign-in (an invitation link): open it once signed in,
+  // whichever way that happened (password, register or Google).
+  useEffect(() => {
+    if (!ready || !user) return;
+    const next = takeNext();
+    if (next) navigate(next, { replace: true });
+  }, [ready, user]);
+
   if (!ready) return <Splash />;
+
+  if (clean === '/undangan') return <Invite />;
+  if (clean === '/harga') return <Pricing />;
 
   if (clean === '/') return <Landing />;
   if (clean === '/masuk' || clean === '/daftar') {
@@ -74,7 +104,7 @@ export default function App() {
     return (
       <AppShell>
         <Page />
-        {user.role === 'user' && <TransactionModal />}
+        {user.role === 'user' && modules.map((m) => m.Overlay && <Fragment key={m.id}><m.Overlay /></Fragment>)}
       </AppShell>
     );
   }

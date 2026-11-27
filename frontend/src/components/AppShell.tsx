@@ -1,28 +1,42 @@
 // Layout for signed-in pages: sidebar on desktop, top bar + bottom nav with a
 // central "+" on mobile. Also hosts the theme toggle and the frozen banner.
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useAuth } from '../lib/auth';
-import { useFinance } from '../lib/finance';
+import { brand } from '../brand';
+import { useApp } from '../lib/app';
 import { useStoredState } from '../lib/hooks';
 import { navigate, useLocation } from '../lib/router';
-import { Icon, Logo, type IconName } from './Icon';
-import { initial, Link } from './ui';
+import { modules } from '../modules';
+import type { NavItem, PrimaryAction } from '../modules/types';
+import { Icon, Logo } from './Icon';
+import { NotificationBell } from './Notifications';
+import { OrgSwitcher } from './OrgSwitcher';
+import { initial, Link, Modal } from './ui';
 
-type NavItem = { to: string; label: string; icon: IconName; short?: string; group: string };
-
-const userNav: NavItem[] = [
-  { to: '/app', label: 'Ringkasan', icon: 'home', short: 'Ringkasan', group: 'Utama' },
-  { to: '/app/transaksi', label: 'Riwayat transaksi', icon: 'list', short: 'Riwayat', group: 'Utama' },
-  { to: '/app/dompet', label: 'Dompet', icon: 'wallet', short: 'Dompet', group: 'Kelola' },
-  { to: '/app/rutin', label: 'Rutin & rencana', icon: 'repeat', short: 'Rutin', group: 'Kelola' },
-  { to: '/app/kategori', label: 'Kategori', icon: 'tag', group: 'Kelola' },
-  { to: '/app/laporan', label: 'Laporan bulanan', icon: 'file', group: 'Laporan' },
+const coreUserNav: NavItem[] = [
+  { to: '/app/tim', label: 'Tim', icon: 'users', group: 'Workspace' },
+  { to: '/app/langganan', label: 'Langganan', icon: 'sparkle', group: 'Workspace' },
+  { to: '/app/notifikasi', label: 'Notifikasi', icon: 'bell', group: 'Akun' },
   { to: '/app/keamanan', label: 'Perangkat & keamanan', icon: 'device', group: 'Akun' },
 ];
+
+const moduleNav = modules.flatMap((m) => m.nav);
+// Without a module home page, the core one gets the first nav slot.
+const userNav: NavItem[] = [
+  ...(moduleNav.some((n) => n.to === '/app') ? [] : [{ to: '/app', label: 'Beranda', icon: 'home', short: 'Beranda', group: 'Utama' } as NavItem]),
+  ...moduleNav,
+  ...coreUserNav,
+];
+
+// The first module that declares a primary action owns the big "+" button.
+const primary: PrimaryAction | undefined = modules.find((m) => m.primary)?.primary;
+const noAction = () => ({ run: () => {}, disabled: true });
 
 const adminNav: NavItem[] = [
   { to: '/admin', label: 'Pengguna', icon: 'users', short: 'Pengguna', group: 'Panel admin' },
   { to: '/admin/audit', label: 'Audit log', icon: 'shield', short: 'Audit', group: 'Panel admin' },
+  { to: '/admin/kode', label: 'Kode undangan', icon: 'sparkle', short: 'Kode', group: 'Panel admin' },
+  { to: '/admin/pembayaran', label: 'Pembayaran', icon: 'wallet', short: 'Bayar', group: 'Panel admin' },
   { to: '/admin/keamanan', label: 'Perangkat saya', icon: 'device', short: 'Perangkat', group: 'Akun' },
 ];
 
@@ -30,15 +44,16 @@ const adminNav: NavItem[] = [
 function groupNav(items: NavItem[]): { label: string; items: NavItem[] }[] {
   const out: { label: string; items: NavItem[] }[] = [];
   for (const n of items) {
+    const label = n.group ?? 'Menu';
     const last = out[out.length - 1];
-    if (last && last.label === n.group) last.items.push(n);
-    else out.push({ label: n.group, items: [n] });
+    if (last && last.label === label) last.items.push(n);
+    else out.push({ label, items: [n] });
   }
   return out;
 }
 
 function ThemeToggle() {
-  const [theme, setTheme] = useStoredState<'light' | 'dark' | ''>('receh-theme', '');
+  const [theme, setTheme] = useStoredState<'light' | 'dark' | ''>(`${brand.storagePrefix}-theme`, '');
   useEffect(() => {
     if (theme) document.documentElement.dataset.theme = theme;
     else delete document.documentElement.dataset.theme;
@@ -53,25 +68,32 @@ function ThemeToggle() {
 
 export function AppShell({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth();
-  const { openTx, readOnly } = useFinance();
+  const { readOnly, membership } = useApp();
+  // Static per build, so the hook order never changes between renders.
+  const action = (primary?.use ?? noAction)();
+  const openAction = action.run;
+  const actionDisabled = readOnly || !!action.disabled;
   const { path } = useLocation();
   const isAdmin = user?.role === 'admin';
-  const nav = isAdmin ? adminNav : userNav;
+  // "Langganan" only exists where something is sold (billing on).
+  const nav = isAdmin ? adminNav : userNav.filter((n) => n.to !== '/app/langganan' || membership?.billingEnabled);
+  const isPremium = !isAdmin && membership?.plan === 'premium' && membership.billingEnabled;
   const current = (to: string) => (to === '/app' || to === '/admin' ? path === to : path.startsWith(to));
 
-  // "N" opens the quick-add form from anywhere, unless the user is typing.
+  // The primary action's shortcut works from anywhere, unless the user is typing.
+  const shortcut = primary?.shortcut;
   useEffect(() => {
-    if (isAdmin || readOnly) return;
+    if (isAdmin || actionDisabled || !shortcut) return;
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement;
-      if (e.key.toLowerCase() !== 'n' || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key.toLowerCase() !== shortcut || e.metaKey || e.ctrlKey || e.altKey) return;
       if (t.closest('input, textarea, select, [contenteditable], dialog')) return;
       e.preventDefault();
-      openTx();
+      openAction();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [isAdmin, readOnly, openTx]);
+  }, [isAdmin, actionDisabled, openAction, shortcut]);
 
   async function signOut() {
     await logout();
@@ -80,16 +102,22 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   const mobileItems = nav.filter((n) => n.short);
   const sections = groupNav(nav);
+  // Everything not in the bottom bar lives in the mobile menu sheet.
+  const menuItems = nav.filter((n) => !n.short);
+  const [menuOpen, setMenuOpen] = useState(false);
+  useEffect(() => setMenuOpen(false), [path]);
 
   return (
     <div className="shell">
       <aside className="sidebar" aria-label="Navigasi utama">
         <Link to={isAdmin ? '/admin' : '/app'} className="brand">
-          <Logo /> Receh
+          <Logo /> {brand.name}
         </Link>
-        {!isAdmin && (
-          <button type="button" className="btn btn-accent" style={{ marginBottom: 14 }} onClick={() => openTx()} disabled={readOnly} aria-keyshortcuts="N" title="Pintasan keyboard: N">
-            <Icon name="plus" size={18} /> Catat transaksi
+        {!isAdmin && <OrgSwitcher variant="side" />}
+        {!isAdmin && primary && (
+          <button type="button" className="btn btn-accent" style={{ marginBottom: 14 }} onClick={openAction} disabled={actionDisabled}
+            aria-keyshortcuts={primary.shortcut?.toUpperCase()} title={primary.shortcut ? `Pintasan keyboard: ${primary.shortcut.toUpperCase()}` : undefined}>
+            <Icon name={primary.icon} size={18} /> {primary.label}
           </button>
         )}
         <nav className="side-nav" aria-label="Menu">
@@ -108,12 +136,15 @@ export function AppShell({ children }: { children: ReactNode }) {
           <div className="user-chip">
             <div className="avatar">{initial(user?.name ?? '')}</div>
             <div>
-              <strong>{user?.name}</strong>
+              <strong>{user?.name}{isPremium && <span className="badge badge-accent premium-tag"><Icon name="sparkle" size={11} /> Premium</span>}</strong>
               <span>{user?.email}</span>
             </div>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <ThemeToggle />
+            <div style={{ display: 'flex', gap: 2 }}>
+              <ThemeToggle />
+              {!isAdmin && <NotificationBell />}
+            </div>
             <button type="button" className="btn btn-quiet btn-sm" onClick={signOut}>
               <Icon name="logout" size={18} /> Keluar
             </button>
@@ -123,18 +154,15 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       <header className="mobile-top">
         <Link to={isAdmin ? '/admin' : '/app'} className="brand">
-          <Logo size={26} /> Receh
+          <Logo size={26} /> {brand.name}
         </Link>
+        {!isAdmin && <OrgSwitcher variant="chip" />}
         <div style={{ display: 'flex', gap: 2 }}>
-          {!isAdmin && (
-            <>
-              <Link to="/app/kategori" className="icon-btn" aria-label="Kategori"><Icon name="tag" /></Link>
-              <Link to="/app/laporan" className="icon-btn" aria-label="Laporan"><Icon name="file" /></Link>
-              <Link to="/app/keamanan" className="icon-btn" aria-label="Perangkat & keamanan"><Icon name="device" /></Link>
-            </>
-          )}
+          {!isAdmin && <NotificationBell />}
           <ThemeToggle />
-          <button type="button" className="icon-btn" onClick={signOut} aria-label="Keluar"><Icon name="logout" /></button>
+          <button type="button" className="icon-btn" onClick={() => setMenuOpen(true)} aria-label="Menu" aria-haspopup="dialog">
+            <Icon name="menu" />
+          </button>
         </div>
       </header>
 
@@ -151,16 +179,36 @@ export function AppShell({ children }: { children: ReactNode }) {
         {children}
       </main>
 
-      <nav className="bottom-nav" aria-label="Navigasi bawah" style={isAdmin ? { gridTemplateColumns: 'repeat(3, 1fr)' } : undefined}>
+      <Modal open={menuOpen} onClose={() => setMenuOpen(false)} title="Menu">
+        <div className="menu-sheet">
+          <div className="user-chip" style={{ padding: '0 0 12px' }}>
+            <div className="avatar">{initial(user?.name ?? '')}</div>
+            <div>
+              <strong>{user?.name}{isPremium && <span className="badge badge-accent premium-tag"><Icon name="sparkle" size={11} /> Premium</span>}</strong>
+              <span>{user?.email}</span>
+            </div>
+          </div>
+          {menuItems.map((n) => (
+            <Link key={n.to} to={n.to} className="nav-link" aria-current={current(n.to) ? 'page' : undefined}>
+              <Icon name={n.icon} /> {n.label}
+            </Link>
+          ))}
+          <button type="button" className="nav-link" onClick={signOut}>
+            <Icon name="logout" /> Keluar
+          </button>
+        </div>
+      </Modal>
+
+      <nav className="bottom-nav" aria-label="Navigasi bawah" style={isAdmin || !primary ? { gridTemplateColumns: `repeat(${mobileItems.length}, 1fr)` } : undefined}>
         {mobileItems.slice(0, 2).map((n) => (
           <Link key={n.to} to={n.to} aria-current={current(n.to) ? 'page' : undefined}>
             <Icon name={n.icon} /> {n.short}
           </Link>
         ))}
-        {!isAdmin && (
-          <button type="button" onClick={() => openTx()} disabled={readOnly} aria-label="Catat transaksi">
-            <span className="fab"><Icon name="plus" size={26} /></span>
-            Catat
+        {!isAdmin && primary && (
+          <button type="button" onClick={openAction} disabled={actionDisabled} aria-label={primary.label}>
+            <span className="fab"><Icon name={primary.icon} size={26} /></span>
+            {primary.short}
           </button>
         )}
         {mobileItems.slice(2).map((n) => (

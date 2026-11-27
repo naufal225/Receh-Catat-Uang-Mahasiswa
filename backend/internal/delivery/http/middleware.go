@@ -15,7 +15,7 @@ import (
 const cookieName = "receh_session"
 
 // authed is a handler that already knows who is calling.
-type authed func(w http.ResponseWriter, r *http.Request, u *domain.User, sess *domain.Session)
+type authed = Authed
 
 func (s *Server) authenticate(w http.ResponseWriter, r *http.Request) (*domain.User, *domain.Session, bool) {
 	c, err := r.Cookie(cookieName)

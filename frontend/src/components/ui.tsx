@@ -5,17 +5,20 @@ import { digitsOnly, groupDigits } from '../lib/format';
 import { Icon, type IconName } from './Icon';
 
 /* ---------- Link (client-side navigation) ---------- */
-export function Link({ to, children, className, ...rest }: { to: string; children: ReactNode; className?: string } & React.AnchorHTMLAttributes<HTMLAnchorElement>) {
+export function Link({ to, children, className, onClick, ...rest }: { to: string; children: ReactNode; className?: string } & React.AnchorHTMLAttributes<HTMLAnchorElement>) {
   return (
     <a
       href={to}
       className={className}
+      {...rest}
       onClick={(e) => {
-        if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
+        // The caller's handler (e.g. closing a modal) runs first, then the
+        // client-side navigation; spreading it would replace the navigation.
+        onClick?.(e);
+        if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
         e.preventDefault();
         navigate(to);
       }}
-      {...rest}
     >
       {children}
     </a>

@@ -1,0 +1,12 @@
+.git
+**/.env
+**/node_modules
+frontend/dist
+backend/bin
+**/*.exe
+**/*.db
+**/*.db-shm
+**/*.db-wal
+**/*.log
+**/*.tsbuildinfo
+docs

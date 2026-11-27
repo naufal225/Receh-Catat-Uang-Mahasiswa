@@ -48,15 +48,27 @@ func writeError(w http.ResponseWriter, err error) {
 		status = http.StatusConflict
 	case domain.KindTooMany:
 		status = http.StatusTooManyRequests
+	case domain.KindUnavailable:
+		status = http.StatusBadGateway
 	}
 	writeJSON(w, status, errorBody{Code: app.Code, Message: app.Message, Field: app.Field})
 }
 
 // readJSON decodes a small JSON body into dst and answers the error itself.
 func readJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
-	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
+	return readJSONLimit(w, r, dst, 64<<10)
+}
+
+// readJSONLimit is readJSON with a custom body cap (statement imports carry a
+// whole CSV file).
+func readJSONLimit(w http.ResponseWriter, r *http.Request, dst any, limit int64) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, limit)
 	if err := json.NewDecoder(r.Body).Decode(dst); err != nil {
 		msg := "Data yang dikirim tidak bisa dibaca."
+		var tooBig *http.MaxBytesError
+		if errors.As(err, &tooBig) {
+			msg = "Berkas terlalu besar."
+		}
 		if errors.Is(err, io.EOF) {
 			msg = "Data kosong."
 		}
@@ -83,4 +95,14 @@ func queryInt(r *http.Request, key string) int {
 func queryInt64(r *http.Request, key string) int64 {
 	v, _ := strconv.ParseInt(r.URL.Query().Get(key), 10, 64)
 	return v
+}
+
+// pathInt64 reads a positive integer path value by name.
+func pathInt64(w http.ResponseWriter, r *http.Request, name string) (int64, bool) {
+	id, err := strconv.ParseInt(r.PathValue(name), 10, 64)
+	if err != nil || id <= 0 {
+		writeError(w, domain.NotFound("Data tidak ditemukan."))
+		return 0, false
+	}
+	return id, true
 }

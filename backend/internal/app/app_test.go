@@ -19,6 +19,9 @@ import (
 
 	"receh/internal/app"
 	"receh/internal/domain"
+	"receh/internal/modules/finance"
+	"receh/internal/modules/finance/model"
+	"receh/internal/modules/finance/service"
 	"receh/internal/repository/mysql"
 
 	driver "github.com/go-sql-driver/mysql"
@@ -28,8 +31,9 @@ import (
 // fakeClock lets a test move "today" so the recurring engine can be exercised
 // across months without waiting.
 type fakeClock struct {
-	mu  sync.Mutex
-	day string
+	mu   sync.Mutex
+	day  string
+	hour int // 0 means 09:00
 }
 
 func (c *fakeClock) Today() string {
@@ -40,7 +44,19 @@ func (c *fakeClock) Today() string {
 
 func (c *fakeClock) Now() time.Time {
 	d, _ := domain.ParseDate(c.Today())
-	return d.Add(9 * time.Hour)
+	c.mu.Lock()
+	h := c.hour
+	c.mu.Unlock()
+	if h == 0 {
+		h = 9
+	}
+	return d.Add(time.Duration(h) * time.Hour)
+}
+
+func (c *fakeClock) setHour(h int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.hour = h
 }
 
 func (c *fakeClock) set(day string) {
@@ -97,6 +113,7 @@ type env struct {
 	srv   *httptest.Server
 	app   *app.App
 	clock *fakeClock
+	db    *sql.DB
 }
 
 const adminEmail, adminPass = "admin@test.local", "admin-password-1"
@@ -110,7 +127,10 @@ func newEnv(t *testing.T, opts ...func(*app.Params)) *env {
 	for _, o := range opts {
 		o(&p)
 	}
-	a := app.New(p)
+	a, err := app.New(p)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := a.Admin.EnsureAdmin(context.Background(), adminEmail, adminPass); err != nil {
 		t.Fatal(err)
 	}
@@ -120,13 +140,22 @@ func newEnv(t *testing.T, opts ...func(*app.Params)) *env {
 		a.Close()
 		db.Close()
 	})
-	return &env{t: t, srv: srv, app: a, clock: clock}
+	return &env{t: t, srv: srv, app: a, clock: clock, db: db}
 }
 
 type client struct {
 	e  *env
 	hc *http.Client
 	ua string
+	// org, when set, is sent as X-Org-Id (the workspace the client acts in).
+	org int64
+}
+
+// in returns the same signed-in client acting in another workspace.
+func (c *client) in(orgID int64) *client {
+	cp := *c
+	cp.org = orgID
+	return &cp
 }
 
 func (e *env) client(ua string) *client {
@@ -147,6 +176,9 @@ func (c *client) do(method, path string, body any) (int, []byte) {
 	}
 	if c.ua != "" {
 		req.Header.Set("User-Agent", c.ua)
+	}
+	if c.org != 0 {
+		req.Header.Set("X-Org-Id", fmt.Sprint(c.org))
 	}
 	resp, err := c.hc.Do(req)
 	if err != nil {
@@ -200,12 +232,12 @@ func (e *env) admin() *client {
 	return c
 }
 
-func (c *client) wallet(name string, balance int64) domain.Wallet {
-	return must[domain.Wallet](c, 201, "POST", "/api/wallets", M{"name": name, "type": "ewallet", "color": "c1", "balance": balance})
+func (c *client) wallet(name string, balance int64) model.Wallet {
+	return must[model.Wallet](c, 201, "POST", "/api/wallets", M{"name": name, "type": "ewallet", "color": "c1", "balance": balance})
 }
 
-func (c *client) category(typ domain.TxType, name string) int64 {
-	for _, cat := range must[[]domain.Category](c, 200, "GET", "/api/categories", nil) {
+func (c *client) category(typ model.TxType, name string) int64 {
+	for _, cat := range must[[]model.Category](c, 200, "GET", "/api/categories", nil) {
 		if cat.Type == typ && cat.Name == name {
 			return cat.ID
 		}
@@ -216,7 +248,7 @@ func (c *client) category(typ domain.TxType, name string) int64 {
 
 func (c *client) balance(id int64) int64 {
 	c.e.t.Helper()
-	for _, w := range must[[]domain.Wallet](c, 200, "GET", "/api/wallets", nil) {
+	for _, w := range must[[]model.Wallet](c, 200, "GET", "/api/wallets", nil) {
 		if w.ID == id {
 			return w.Balance
 		}
@@ -234,10 +266,10 @@ func TestBalanceFollowsEveryTransactionChange(t *testing.T) {
 	c := e.newUser("")
 	w := c.wallet("BCA", 100_000)
 	other := c.wallet("GoPay", 0)
-	makan := c.category(domain.TxExpense, "Makan")
-	saku := c.category(domain.TxIncome, "Uang Saku")
+	makan := c.category(model.TxExpense, "Makan")
+	saku := c.category(model.TxIncome, "Uang Saku")
 
-	spent := must[domain.Transaction](c, 201, "POST", "/api/transactions", txBody(w.ID, makan, "expense", 30_000, "2026-01-10"))
+	spent := must[model.Transaction](c, 201, "POST", "/api/transactions", txBody(w.ID, makan, "expense", 30_000, "2026-01-10"))
 	if got := c.balance(w.ID); got != 70_000 {
 		t.Fatalf("after expense: %d", got)
 	}
@@ -251,7 +283,7 @@ func TestBalanceFollowsEveryTransactionChange(t *testing.T) {
 		t.Fatalf("after edit: %d", got)
 	}
 	// Moving an income to another wallet moves the money with it.
-	list := must[domain.Page[domain.Transaction]](c, 200, "GET", "/api/transactions?type=income", nil)
+	list := must[domain.Page[model.Transaction]](c, 200, "GET", "/api/transactions?type=income", nil)
 	c.expect(200, "PUT", fmt.Sprintf("/api/transactions/%d", list.Items[0].ID), txBody(other.ID, saku, "income", 50_000, "2026-01-11"))
 	if a, b := c.balance(w.ID), c.balance(other.ID); a != 90_000 || b != 50_000 {
 		t.Fatalf("after move: %d %d", a, b)
@@ -267,14 +299,14 @@ func TestOverdraftAndSpentIncomeAreRefused(t *testing.T) {
 	e := newEnv(t)
 	c := e.newUser("")
 	w := c.wallet("DANA", 10_000)
-	makan := c.category(domain.TxExpense, "Makan")
-	saku := c.category(domain.TxIncome, "Uang Saku")
+	makan := c.category(model.TxExpense, "Makan")
+	saku := c.category(model.TxIncome, "Uang Saku")
 
 	c.expect(409, "POST", "/api/transactions", txBody(w.ID, makan, "expense", 10_001, "2026-01-10"))
 	if got := c.balance(w.ID); got != 10_000 {
 		t.Fatalf("refused expense moved money: %d", got)
 	}
-	in := must[domain.Transaction](c, 201, "POST", "/api/transactions", txBody(w.ID, saku, "income", 5_000, "2026-01-10"))
+	in := must[model.Transaction](c, 201, "POST", "/api/transactions", txBody(w.ID, saku, "income", 5_000, "2026-01-10"))
 	c.expect(201, "POST", "/api/transactions", txBody(w.ID, makan, "expense", 15_000, "2026-01-10"))
 	// That income has been spent, so removing it would make the balance negative.
 	c.expect(409, "DELETE", fmt.Sprintf("/api/transactions/%d", in.ID), nil)
@@ -287,8 +319,8 @@ func TestValidationRejectsBadInput(t *testing.T) {
 	e := newEnv(t)
 	c := e.newUser("")
 	w := c.wallet("Tunai", 1000)
-	makan := c.category(domain.TxExpense, "Makan")
-	saku := c.category(domain.TxIncome, "Uang Saku")
+	makan := c.category(model.TxExpense, "Makan")
+	saku := c.category(model.TxIncome, "Uang Saku")
 	cases := []M{
 		txBody(w.ID, makan, "expense", 0, "2026-01-10"),
 		txBody(w.ID, makan, "expense", -5, "2026-01-10"),
@@ -314,7 +346,7 @@ func TestConcurrentSpendingNeverOverdrawsOrLosesUpdates(t *testing.T) {
 	e := newEnv(t)
 	c := e.newUser("")
 	w := c.wallet("BCA", 50_000)
-	makan := c.category(domain.TxExpense, "Makan")
+	makan := c.category(model.TxExpense, "Makan")
 
 	var ok, refused atomic.Int64
 	var wg sync.WaitGroup
@@ -344,8 +376,8 @@ func TestConcurrentMixedTrafficKeepsLedgerConsistent(t *testing.T) {
 	e := newEnv(t)
 	c := e.newUser("")
 	a, b := c.wallet("A", 500_000), c.wallet("B", 500_000)
-	makan := c.category(domain.TxExpense, "Makan")
-	saku := c.category(domain.TxIncome, "Uang Saku")
+	makan := c.category(model.TxExpense, "Makan")
+	saku := c.category(model.TxIncome, "Uang Saku")
 
 	var wg sync.WaitGroup
 	for i := range 60 {
@@ -366,7 +398,7 @@ func TestConcurrentMixedTrafficKeepsLedgerConsistent(t *testing.T) {
 
 	// The stored balance must equal the opening balance plus the sum of history.
 	sum := map[int64]int64{a.ID: 500_000, b.ID: 500_000}
-	page := must[domain.Page[domain.Transaction]](c, 200, "GET", "/api/transactions?pageSize=100", nil)
+	page := must[domain.Page[model.Transaction]](c, 200, "GET", "/api/transactions?pageSize=100", nil)
 	if page.Total != 60 {
 		t.Fatalf("recorded %d of 60", page.Total)
 	}
@@ -382,14 +414,14 @@ func TestUsersCannotReachEachOthersData(t *testing.T) {
 	e := newEnv(t)
 	alice, mallory := e.newUser(""), e.newUser("")
 	w := alice.wallet("BCA", 10_000)
-	cat := alice.category(domain.TxExpense, "Makan")
-	tx := must[domain.Transaction](alice, 201, "POST", "/api/transactions", txBody(w.ID, cat, "expense", 1_000, "2026-01-10"))
+	cat := alice.category(model.TxExpense, "Makan")
+	tx := must[model.Transaction](alice, 201, "POST", "/api/transactions", txBody(w.ID, cat, "expense", 1_000, "2026-01-10"))
 
 	mallory.expect(404, "DELETE", fmt.Sprintf("/api/wallets/%d", w.ID), nil)
 	mallory.expect(404, "DELETE", fmt.Sprintf("/api/transactions/%d", tx.ID), nil)
 	mallory.expect(404, "DELETE", fmt.Sprintf("/api/categories/%d", cat), nil)
 	mallory.expect(400, "POST", "/api/transactions", txBody(w.ID, cat, "expense", 1, "2026-01-10"))
-	if p := must[domain.Page[domain.Transaction]](mallory, 200, "GET", "/api/transactions", nil); p.Total != 0 {
+	if p := must[domain.Page[model.Transaction]](mallory, 200, "GET", "/api/transactions", nil); p.Total != 0 {
 		t.Fatalf("mallory sees %d transactions", p.Total)
 	}
 	aliceSessions := must[[]domain.Session](alice, 200, "GET", "/api/sessions", nil)
@@ -400,8 +432,8 @@ func TestRecurringPostsMonthlyClampsAndCatchesUp(t *testing.T) {
 	e := newEnv(t)
 	c := e.newUser("")
 	w := c.wallet("BCA", 1_000_000)
-	cat := c.category(domain.TxExpense, "Langganan")
-	rule := must[domain.Recurring](c, 201, "POST", "/api/recurring", M{
+	cat := c.category(model.TxExpense, "Langganan")
+	rule := must[model.Recurring](c, 201, "POST", "/api/recurring", M{
 		"walletId": w.ID, "categoryId": cat, "type": "expense", "name": "Netflix",
 		"amount": 50_000, "frequency": "monthly", "startOn": "2026-01-31",
 	})
@@ -410,7 +442,7 @@ func TestRecurringPostsMonthlyClampsAndCatchesUp(t *testing.T) {
 	}
 	sweep := func() {
 		t.Helper()
-		if _, err := e.app.Recurring.RunDue(context.Background()); err != nil {
+		if _, err := e.recurring().RunDue(context.Background()); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -426,7 +458,7 @@ func TestRecurringPostsMonthlyClampsAndCatchesUp(t *testing.T) {
 	if got := c.balance(w.ID); got != 850_000 {
 		t.Fatalf("balance %d, want 850000", got)
 	}
-	page := must[domain.Page[domain.Transaction]](c, 200, "GET", "/api/transactions", nil)
+	page := must[domain.Page[model.Transaction]](c, 200, "GET", "/api/transactions", nil)
 	var dates []string
 	for _, tx := range page.Items {
 		dates = append(dates, tx.OccurredOn)
@@ -444,8 +476,8 @@ func TestRecurringStartingTodayPostsImmediately(t *testing.T) {
 	e := newEnv(t)
 	c := e.newUser("")
 	w := c.wallet("BCA", 100_000)
-	cat := c.category(domain.TxExpense, "Listrik")
-	rule := must[domain.Recurring](c, 201, "POST", "/api/recurring", M{
+	cat := c.category(model.TxExpense, "Listrik")
+	rule := must[model.Recurring](c, 201, "POST", "/api/recurring", M{
 		"walletId": w.ID, "categoryId": cat, "type": "expense", "name": "Listrik kos",
 		"amount": 50_000, "frequency": "monthly", "startOn": e.clock.Today(),
 	})
@@ -462,9 +494,9 @@ func TestRecurringWaitsForMoneyThenRetries(t *testing.T) {
 	e := newEnv(t)
 	c := e.newUser("")
 	w := c.wallet("GoPay", 1_000)
-	cat := c.category(domain.TxExpense, "Langganan")
-	saku := c.category(domain.TxIncome, "Uang Saku")
-	rule := must[domain.Recurring](c, 201, "POST", "/api/recurring", M{
+	cat := c.category(model.TxExpense, "Langganan")
+	saku := c.category(model.TxIncome, "Uang Saku")
+	rule := must[model.Recurring](c, 201, "POST", "/api/recurring", M{
 		"walletId": w.ID, "categoryId": cat, "type": "expense", "name": "Spotify",
 		"amount": 5_000, "frequency": "monthly", "startOn": e.clock.Today(),
 	})
@@ -472,13 +504,13 @@ func TestRecurringWaitsForMoneyThenRetries(t *testing.T) {
 		t.Fatalf("should wait with a note: %+v balance %d", rule, c.balance(w.ID))
 	}
 	c.expect(201, "POST", "/api/transactions", txBody(w.ID, saku, "income", 10_000, "2026-01-15"))
-	if _, err := e.app.Recurring.RunDue(context.Background()); err != nil {
+	if _, err := e.recurring().RunDue(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if c.balance(w.ID) != 6_000 {
 		t.Fatalf("balance %d, want 6000", c.balance(w.ID))
 	}
-	list := must[[]domain.Recurring](c, 200, "GET", "/api/recurring", nil)
+	list := must[[]model.Recurring](c, 200, "GET", "/api/recurring", nil)
 	if list[0].LastError != "" || list[0].NextDue != "2026-02-15" {
 		t.Fatalf("after retry: %+v", list[0])
 	}
@@ -488,18 +520,18 @@ func TestPausedRuleSkipsMissedPeriodsOnResume(t *testing.T) {
 	e := newEnv(t)
 	c := e.newUser("")
 	w := c.wallet("BCA", 500_000)
-	cat := c.category(domain.TxExpense, "Langganan")
-	rule := must[domain.Recurring](c, 201, "POST", "/api/recurring", M{
+	cat := c.category(model.TxExpense, "Langganan")
+	rule := must[model.Recurring](c, 201, "POST", "/api/recurring", M{
 		"walletId": w.ID, "categoryId": cat, "type": "expense", "name": "Netflix",
 		"amount": 50_000, "frequency": "monthly", "startOn": "2026-01-20",
 	})
 	path := fmt.Sprintf("/api/recurring/%d/active", rule.ID)
 	c.expect(200, "POST", path, M{"active": false})
 	e.clock.set("2026-04-10")
-	if _, err := e.app.Recurring.RunDue(context.Background()); err != nil {
+	if _, err := e.recurring().RunDue(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	resumed := must[domain.Recurring](c, 200, "POST", path, M{"active": true})
+	resumed := must[model.Recurring](c, 200, "POST", path, M{"active": true})
 	if resumed.NextDue != "2026-04-20" || c.balance(w.ID) != 500_000 {
 		t.Fatalf("resume charged or misdated: %+v balance %d", resumed, c.balance(w.ID))
 	}
@@ -509,7 +541,7 @@ func TestConcurrentRecurringAndManualSpendStayConsistent(t *testing.T) {
 	e := newEnv(t)
 	c := e.newUser("")
 	w := c.wallet("BCA", 10_000)
-	cat := c.category(domain.TxExpense, "Langganan")
+	cat := c.category(model.TxExpense, "Langganan")
 	for i := range 8 {
 		c.expect(201, "POST", "/api/recurring", M{
 			"walletId": w.ID, "categoryId": cat, "type": "expense", "name": fmt.Sprintf("Rutin %d", i),
@@ -521,7 +553,7 @@ func TestConcurrentRecurringAndManualSpendStayConsistent(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		_, _ = e.app.Recurring.RunDue(context.Background())
+		_, _ = e.recurring().RunDue(context.Background())
 	}()
 	for range 8 {
 		wg.Add(1)
@@ -531,7 +563,7 @@ func TestConcurrentRecurringAndManualSpendStayConsistent(t *testing.T) {
 		}()
 	}
 	wg.Wait()
-	page := must[domain.Page[domain.Transaction]](c, 200, "GET", "/api/transactions?pageSize=100", nil)
+	page := must[domain.Page[model.Transaction]](c, 200, "GET", "/api/transactions?pageSize=100", nil)
 	if page.Total != 5 || c.balance(w.ID) != 0 {
 		t.Fatalf("posted %d, balance %d; want 5 posts and 0", page.Total, c.balance(w.ID))
 	}
@@ -541,14 +573,14 @@ func TestDashboardBucketsAndFilters(t *testing.T) {
 	e := newEnv(t)
 	c := e.newUser("")
 	bca, gopay := c.wallet("BCA", 1_000_000), c.wallet("GoPay", 100_000)
-	makan := c.category(domain.TxExpense, "Makan")
-	listrik := c.category(domain.TxExpense, "Listrik")
-	saku := c.category(domain.TxIncome, "Uang Saku")
+	makan := c.category(model.TxExpense, "Makan")
+	listrik := c.category(model.TxExpense, "Listrik")
+	saku := c.category(model.TxIncome, "Uang Saku")
 	c.expect(201, "POST", "/api/transactions", txBody(bca.ID, makan, "expense", 20_000, "2026-01-15"))
 	c.expect(201, "POST", "/api/transactions", txBody(gopay.ID, listrik, "expense", 50_000, "2026-01-14"))
 	c.expect(201, "POST", "/api/transactions", txBody(bca.ID, saku, "income", 300_000, "2025-12-20"))
 
-	d := must[domain.Dashboard](c, 200, "GET", "/api/dashboard?unit=month", nil)
+	d := must[model.Dashboard](c, 200, "GET", "/api/dashboard?unit=month", nil)
 	if len(d.Buckets) != 12 || d.Totals.Income != 300_000 || d.Totals.Expense != 70_000 {
 		t.Fatalf("month: %+v", d.Totals)
 	}
@@ -564,17 +596,17 @@ func TestDashboardBucketsAndFilters(t *testing.T) {
 	}
 
 	// Wallet filter scopes every figure.
-	f := must[domain.Dashboard](c, 200, "GET", fmt.Sprintf("/api/dashboard?unit=month&walletId=%d", gopay.ID), nil)
+	f := must[model.Dashboard](c, 200, "GET", fmt.Sprintf("/api/dashboard?unit=month&walletId=%d", gopay.ID), nil)
 	if f.Totals.Expense != 50_000 || f.Totals.Income != 0 || f.TotalBalance != 50_000 || len(f.Latest) != 1 {
 		t.Fatalf("wallet filter: %+v", f.Totals)
 	}
 	// Every unit has its expected window, and an older window is reachable.
 	for unit, n := range map[string]int{"day": 14, "week": 12, "month": 12, "year": 5} {
-		if d := must[domain.Dashboard](c, 200, "GET", "/api/dashboard?unit="+unit, nil); len(d.Buckets) != n {
+		if d := must[model.Dashboard](c, 200, "GET", "/api/dashboard?unit="+unit, nil); len(d.Buckets) != n {
 			t.Fatalf("%s: %d buckets", unit, len(d.Buckets))
 		}
 	}
-	old := must[domain.Dashboard](c, 200, "GET", "/api/dashboard?unit=month&offset=1", nil)
+	old := must[model.Dashboard](c, 200, "GET", "/api/dashboard?unit=month&offset=1", nil)
 	if old.Totals.Expense != 0 || !old.CanGoForward {
 		t.Fatalf("offset window: %+v", old.Totals)
 	}
@@ -582,7 +614,7 @@ func TestDashboardBucketsAndFilters(t *testing.T) {
 
 	// A bar click asks for one bucket's breakdown.
 	s := must[struct {
-		Totals domain.Totals
+		Totals model.Totals
 	}](c, 200, "GET", "/api/dashboard/slices?from=2026-01-15&to=2026-01-15", nil)
 	if s.Totals.Expense != 20_000 {
 		t.Fatalf("slices range: %+v", s.Totals)
@@ -593,11 +625,11 @@ func TestMonthlyPDFIsValidAndComplete(t *testing.T) {
 	e := newEnv(t)
 	c := e.newUser("")
 	w := c.wallet("BCA", 5_000_000)
-	makan := c.category(domain.TxExpense, "Makan")
+	makan := c.category(model.TxExpense, "Makan")
 	for i := range 90 { // Enough rows to force extra pages.
 		c.expect(201, "POST", "/api/transactions", txBody(w.ID, makan, "expense", int64(1000+i), "2026-01-10"))
 	}
-	rep := must[domain.MonthlyReport](c, 200, "GET", "/api/reports/monthly?month=2026-01", nil)
+	rep := must[model.MonthlyReport](c, 200, "GET", "/api/reports/monthly?month=2026-01", nil)
 	if len(rep.Transactions) != 90 || rep.Title != "Januari 2026" {
 		t.Fatalf("report: %d %s", len(rep.Transactions), rep.Title)
 	}
@@ -677,7 +709,7 @@ func TestAdminSuspendBlocksLoginAndEndsSessions(t *testing.T) {
 
 	u := e.client("")
 	u.expect(200, "POST", "/api/auth/login", M{"email": "citra@test.local", "password": "password-123"})
-	if cats := must[[]domain.Category](u, 200, "GET", "/api/categories", nil); len(cats) == 0 {
+	if cats := must[[]model.Category](u, 200, "GET", "/api/categories", nil); len(cats) == 0 {
 		t.Fatal("admin-created user has no default categories")
 	}
 
@@ -705,8 +737,8 @@ func TestAdminFreezeMakesAccountReadOnlyAndPausesRoutines(t *testing.T) {
 	admin := e.admin()
 	c := e.newUser("")
 	w := c.wallet("BCA", 100_000)
-	cat := c.category(domain.TxExpense, "Makan")
-	tx := must[domain.Transaction](c, 201, "POST", "/api/transactions", txBody(w.ID, cat, "expense", 1_000, "2026-01-10"))
+	cat := c.category(model.TxExpense, "Makan")
+	tx := must[model.Transaction](c, 201, "POST", "/api/transactions", txBody(w.ID, cat, "expense", 1_000, "2026-01-10"))
 	c.expect(201, "POST", "/api/recurring", M{
 		"walletId": w.ID, "categoryId": cat, "type": "expense", "name": "Rutin",
 		"amount": 1_000, "frequency": "daily", "startOn": "2026-01-16",
@@ -740,7 +772,7 @@ func TestAdminFreezeMakesAccountReadOnlyAndPausesRoutines(t *testing.T) {
 	}
 	// Scheduled money movement also stops.
 	e.clock.set("2026-01-20")
-	if n, err := e.app.Recurring.RunDue(context.Background()); err != nil || n != 0 {
+	if n, err := e.recurring().RunDue(context.Background()); err != nil || n != 0 {
 		t.Fatalf("posted %d while frozen (err %v)", n, err)
 	}
 	if got := c.balance(w.ID); got != 99_000 {
@@ -864,7 +896,7 @@ func TestWalletRemovalKeepsHistory(t *testing.T) {
 	c := e.newUser("")
 	empty := c.wallet("Kosong", 0)
 	used := c.wallet("Dipakai", 10_000)
-	cat := c.category(domain.TxExpense, "Makan")
+	cat := c.category(model.TxExpense, "Makan")
 	c.expect(201, "POST", "/api/transactions", txBody(used.ID, cat, "expense", 1_000, "2026-01-10"))
 
 	if r := must[map[string]bool](c, 200, "DELETE", fmt.Sprintf("/api/wallets/%d", empty.ID), nil); r["archived"] {
@@ -873,13 +905,18 @@ func TestWalletRemovalKeepsHistory(t *testing.T) {
 	if r := must[map[string]bool](c, 200, "DELETE", fmt.Sprintf("/api/wallets/%d", used.ID), nil); !r["archived"] {
 		t.Fatal("used wallet should be archived")
 	}
-	if w := must[[]domain.Wallet](c, 200, "GET", "/api/wallets", nil); len(w) != 0 {
+	if w := must[[]model.Wallet](c, 200, "GET", "/api/wallets", nil); len(w) != 0 {
 		t.Fatalf("still listed: %+v", w)
 	}
-	if p := must[domain.Page[domain.Transaction]](c, 200, "GET", "/api/transactions", nil); p.Total != 1 || p.Items[0].WalletName != "Dipakai" {
+	if p := must[domain.Page[model.Transaction]](c, 200, "GET", "/api/transactions", nil); p.Total != 1 || p.Items[0].WalletName != "Dipakai" {
 		t.Fatalf("history lost: %+v", p)
 	}
 	c.expect(400, "POST", "/api/transactions", txBody(used.ID, cat, "expense", 1, "2026-01-10"))
 	// A category in use cannot be deleted either.
 	c.expect(409, "DELETE", fmt.Sprintf("/api/categories/%d", cat), nil)
+}
+
+// recurring is the finance module's recurring service (scheduler tests).
+func (e *env) recurring() *service.RecurringService {
+	return e.app.Module("finance").(*finance.Module).Services.Recurring
 }

@@ -116,33 +116,93 @@ func createDatabase(cfg driver.Config) error {
 // applySchema runs schema.sql one statement at a time, so the DSN never needs
 // multiStatements (which would widen the blast radius of any injection bug).
 func applySchema(db *sql.DB) error {
+	if err := ApplySchema(db, schema); err != nil {
+		return err
+	}
+	if err := Migrate(db, migrations); err != nil {
+		return err
+	}
+	return backfillPersonalOrgs(db)
+}
+
+// backfillPersonalOrgs gives every user account that has no workspace yet its
+// personal one, so databases from before organizations existed keep working.
+// It only inserts; a second run finds nothing to do.
+func backfillPersonalOrgs(db *sql.DB) error {
+	rows, err := db.Query(`SELECT u.id, u.name FROM users u
+		WHERE u.role = 'user' AND NOT EXISTS (SELECT 1 FROM org_members m WHERE m.user_id = u.id)`)
+	if err != nil {
+		return err
+	}
+	type pending struct {
+		id   int64
+		name string
+	}
+	var todo []pending
+	for rows.Next() {
+		var p pending
+		if err := rows.Scan(&p.id, &p.name); err != nil {
+			rows.Close()
+			return err
+		}
+		todo = append(todo, p)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	repo := NewOrgRepo(db)
+	for _, p := range todo {
+		o := &domain.Org{Name: PersonalOrgName(p.name), Personal: true, OwnerID: p.id}
+		if err := repo.Create(context.Background(), o); err != nil {
+			return fmt.Errorf("backfill workspace for user %d: %w", p.id, err)
+		}
+	}
+	return nil
+}
+
+// PersonalOrgName is the name of a user's personal workspace.
+func PersonalOrgName(userName string) string { return "Pribadi" }
+
+// ApplySchema runs CREATE ... IF NOT EXISTS statements; modules call it with
+// their own schema after the core one.
+func ApplySchema(db *sql.DB, schema string) error {
 	for _, stmt := range splitStatements(schema) {
 		if _, err := db.Exec(stmt); err != nil {
 			return fmt.Errorf("apply schema: %w\n%s", err, stmt)
 		}
 	}
-	return migrate(db)
+	return nil
 }
 
 // migrations add what CREATE TABLE IF NOT EXISTS cannot: columns introduced
 // after a database was first created. Each runs only if its column is missing.
-var migrations = []struct{ table, column, ddl string }{
+// Migration adds Column to Table with DDL when the column is missing.
+type Migration struct{ Table, Column, DDL string }
+
+var migrations = []Migration{
 	{"users", "google_sub", "ALTER TABLE users ADD COLUMN google_sub VARCHAR(64) NULL AFTER password_hash, ADD UNIQUE KEY uq_users_google (google_sub)"},
+	{"notification_prefs", "settings", "ALTER TABLE notification_prefs ADD COLUMN settings TEXT NULL"},
+	// A payment belongs to one workspace; comps and codes (NULL) stay account-wide.
+	{"entitlements", "org_id", "ALTER TABLE entitlements ADD COLUMN org_id BIGINT NULL AFTER user_id, " +
+		"ADD KEY idx_entitlements_org (org_id, revoked_at), " +
+		"ADD CONSTRAINT fk_ent_org FOREIGN KEY (org_id) REFERENCES organizations (id) ON DELETE CASCADE"},
 }
 
-func migrate(db *sql.DB) error {
+// Migrate applies column migrations idempotently (modules pass their own).
+func Migrate(db *sql.DB, migrations []Migration) error {
 	for _, m := range migrations {
 		var n int
 		err := db.QueryRow(`SELECT COUNT(*) FROM information_schema.COLUMNS
-			WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`, m.table, m.column).Scan(&n)
+			WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`, m.Table, m.Column).Scan(&n)
 		if err != nil {
-			return fmt.Errorf("check column %s.%s: %w", m.table, m.column, err)
+			return fmt.Errorf("check column %s.%s: %w", m.Table, m.Column, err)
 		}
 		if n > 0 {
 			continue
 		}
-		if _, err := db.Exec(m.ddl); err != nil {
-			return fmt.Errorf("migrate %s.%s: %w", m.table, m.column, err)
+		if _, err := db.Exec(m.DDL); err != nil {
+			return fmt.Errorf("migrate %s.%s: %w", m.Table, m.Column, err)
 		}
 	}
 	return nil

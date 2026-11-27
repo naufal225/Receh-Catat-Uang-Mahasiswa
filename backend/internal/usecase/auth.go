@@ -22,6 +22,7 @@ const sessionTTL = 30 * 24 * time.Hour
 
 type AuthService struct {
 	users    domain.UserRepository
+	hooks    *UserHooks
 	sessions domain.SessionRepository
 	audit    *AuditRecorder
 	cost     int
@@ -42,13 +43,13 @@ type AuthService struct {
 	oauthStates *cache.TTL[string, pendingOAuth]
 }
 
-func NewAuthService(u domain.UserRepository, s domain.SessionRepository, a *AuditRecorder, bcryptCost int) *AuthService {
+func NewAuthService(u domain.UserRepository, s domain.SessionRepository, a *AuditRecorder, bcryptCost int, hooks *UserHooks) *AuthService {
 	dummy, err := bcrypt.GenerateFromPassword([]byte("receh-timing-equalizer"), bcryptCost)
 	if err != nil {
 		panic(err) // Only an invalid compile-time cost can cause this.
 	}
 	return &AuthService{
-		users: u, sessions: s, audit: a, cost: bcryptCost, dummyHash: dummy,
+		users: u, sessions: s, audit: a, cost: bcryptCost, dummyHash: dummy, hooks: hooks,
 		loginLimit:    ratelimit.New(8, 10*time.Minute),
 		registerLimit: ratelimit.New(20, time.Hour),
 		touches:       make(map[int64]time.Time),
@@ -89,7 +90,7 @@ func (s *AuthService) Register(ctx context.Context, name, email, password string
 		return nil, "", err
 	}
 	u := &domain.User{Name: name, Email: email, PasswordHash: string(hash), Role: domain.RoleUser, Status: domain.StatusActive}
-	if err := s.users.CreateWithDefaults(ctx, u, DefaultCategories()); err != nil {
+	if err := s.hooks.CreateUser(ctx, s.users, u); err != nil {
 		var app *domain.AppError
 		if errors.As(err, &app) && app.Code == "EMAIL_TAKEN" {
 			app = &domain.AppError{Kind: app.Kind, Code: app.Code, Message: app.Message, Field: "email"}

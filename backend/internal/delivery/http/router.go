@@ -13,15 +13,12 @@ import (
 
 // Services groups what the handlers call.
 type Services struct {
-	Auth       *usecase.AuthService
-	Wallets    *usecase.WalletService
-	Categories *usecase.CategoryService
-	Txs        *usecase.TransactionService
-	Transfers  *usecase.TransferService
-	Recurring  *usecase.RecurringService
-	Dashboard  *usecase.DashboardService
-	Reports    *usecase.ReportService
-	Admin      *usecase.AdminService
+	Auth          *usecase.AuthService
+	Admin         *usecase.AdminService
+	Membership    *usecase.MembershipService
+	Notifications *usecase.NotificationService
+	Orgs          *usecase.OrgService
+	Billing       *usecase.BillingService
 }
 
 type Options struct {
@@ -31,8 +28,9 @@ type Options struct {
 }
 
 type Server struct {
-	svc  Services
-	opts Options
+	svc    Services
+	opts   Options
+	mounts []Mounter
 }
 
 func NewServer(svc Services, opts Options) *Server { return &Server{svc: svc, opts: opts} }
@@ -58,43 +56,57 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/sessions/{id}", s.anyone(s.revokeSession))
 	mux.HandleFunc("DELETE /api/sessions", s.anyone(s.revokeOtherSessions))
 
-	mux.HandleFunc("GET /api/wallets", s.userRead(s.listWallets))
-	mux.HandleFunc("POST /api/wallets", s.userWrite(s.createWallet))
-	mux.HandleFunc("PUT /api/wallets/{id}", s.userWrite(s.updateWallet))
-	mux.HandleFunc("DELETE /api/wallets/{id}", s.userWrite(s.deleteWallet))
+	mux.HandleFunc("GET /api/orgs", s.userRead(s.listOrgs))
+	mux.HandleFunc("POST /api/orgs", s.userWrite(s.createOrg))
+	mux.HandleFunc("PUT /api/orgs/{id}", s.userWrite(s.renameOrg))
+	mux.HandleFunc("DELETE /api/orgs/{id}", s.userWrite(s.deleteOrg))
+	mux.HandleFunc("GET /api/orgs/{id}/members", s.userRead(s.orgMembers))
+	mux.HandleFunc("PUT /api/orgs/{id}/members/{uid}", s.userWrite(s.setMemberRole))
+	mux.HandleFunc("DELETE /api/orgs/{id}/members/{uid}", s.userWrite(s.removeMember))
+	mux.HandleFunc("POST /api/orgs/{id}/transfer", s.userWrite(s.transferOrg))
+	mux.HandleFunc("GET /api/orgs/{id}/invitations", s.userRead(s.listInvites))
+	mux.HandleFunc("POST /api/orgs/{id}/invitations", s.userWrite(s.createInvite))
+	mux.HandleFunc("DELETE /api/orgs/{id}/invitations/{iid}", s.userWrite(s.revokeInvite))
+	mux.HandleFunc("GET /api/invitations/{token}", s.userRead(s.inviteInfo))
+	mux.HandleFunc("POST /api/invitations/{token}/accept", s.userWrite(s.acceptInvite))
 
-	mux.HandleFunc("GET /api/categories", s.userRead(s.listCategories))
-	mux.HandleFunc("POST /api/categories", s.userWrite(s.createCategory))
-	mux.HandleFunc("PUT /api/categories/{id}", s.userWrite(s.updateCategory))
-	mux.HandleFunc("DELETE /api/categories/{id}", s.userWrite(s.deleteCategory))
+	mux.HandleFunc("GET /api/notifications", s.userRead(s.inbox))
+	mux.HandleFunc("GET /api/notifications/unread", s.userRead(s.unreadCount))
+	mux.HandleFunc("POST /api/notifications/read", s.userRead(s.markRead))
+	mux.HandleFunc("GET /api/notifications/prefs", s.userRead(s.notificationPrefs))
+	mux.HandleFunc("PUT /api/notifications/prefs", s.userWrite(s.saveNotificationPrefs))
 
-	mux.HandleFunc("GET /api/transactions", s.userRead(s.listTransactions))
-	mux.HandleFunc("POST /api/transactions", s.userWrite(s.createTransaction))
-	mux.HandleFunc("PUT /api/transactions/{id}", s.userWrite(s.updateTransaction))
-	mux.HandleFunc("DELETE /api/transactions/{id}", s.userWrite(s.deleteTransaction))
+	mux.HandleFunc("GET /api/membership", s.orgRead(s.membership))
+	mux.HandleFunc("POST /api/membership/redeem", s.orgWrite(s.redeemCode))
 
-	mux.HandleFunc("GET /api/transfers/last-fee", s.userRead(s.transferFee))
-	mux.HandleFunc("GET /api/transfers/{id}", s.userRead(s.getTransfer))
-	mux.HandleFunc("POST /api/transfers", s.userWrite(s.createTransfer))
-	mux.HandleFunc("PUT /api/transfers/{id}", s.userWrite(s.updateTransfer))
-	mux.HandleFunc("DELETE /api/transfers/{id}", s.userWrite(s.deleteTransfer))
-
-	mux.HandleFunc("GET /api/recurring", s.userRead(s.listRecurring))
-	mux.HandleFunc("POST /api/recurring", s.userWrite(s.createRecurring))
-	mux.HandleFunc("PUT /api/recurring/{id}", s.userWrite(s.updateRecurring))
-	mux.HandleFunc("POST /api/recurring/{id}/active", s.userWrite(s.setRecurringActive))
-	mux.HandleFunc("DELETE /api/recurring/{id}", s.userWrite(s.deleteRecurring))
-
-	mux.HandleFunc("GET /api/dashboard", s.userRead(s.dashboard))
-	mux.HandleFunc("GET /api/dashboard/slices", s.userRead(s.dashboardSlices))
-
-	mux.HandleFunc("GET /api/reports/monthly", s.userRead(s.monthlyReport))
-	mux.HandleFunc("GET /api/reports/monthly.pdf", s.userRead(s.monthlyReportPDF))
+	mux.HandleFunc("GET /api/billing/catalog", s.billingCatalog)
+	mux.HandleFunc("GET /api/billing", s.orgRead(s.billingOverview))
+	mux.HandleFunc("POST /api/billing/checkout", s.orgWrite(s.billingCheckout))
+	mux.HandleFunc("POST /api/billing/payments/{id}/cancel", s.orgWrite(s.billingCancelPayment))
+	mux.HandleFunc("POST /api/billing/payments/{id}/sync", s.orgWrite(s.billingSyncPayment))
+	mux.HandleFunc("POST /api/billing/subscription/stop", s.orgWrite(s.billingSetRenewal(true)))
+	mux.HandleFunc("POST /api/billing/subscription/resume", s.orgWrite(s.billingSetRenewal(false)))
+	mux.HandleFunc("POST /api/billing/webhook/{provider}", s.billingWebhook)
+	mux.HandleFunc("POST /api/billing/mock/{ref}/{outcome}", s.billingMockComplete)
+	mux.HandleFunc("GET /api/admin/payments", s.admin(s.adminPayments))
+	mux.HandleFunc("POST /api/admin/payments/{id}/sync", s.admin(s.adminSyncPayment))
+	mux.HandleFunc("GET /api/admin/billing/status", s.admin(s.adminBillingStatus))
 
 	mux.HandleFunc("GET /api/admin/users", s.admin(s.adminListUsers))
 	mux.HandleFunc("POST /api/admin/users", s.admin(s.adminCreateUser))
 	mux.HandleFunc("POST /api/admin/users/{id}/status", s.admin(s.adminSetStatus))
 	mux.HandleFunc("GET /api/admin/audit-logs", s.admin(s.adminAuditLogs))
+	mux.HandleFunc("GET /api/admin/users/{id}/premium", s.admin(s.adminUserPremium))
+	mux.HandleFunc("POST /api/admin/users/{id}/premium", s.admin(s.adminGrantPremium))
+	mux.HandleFunc("DELETE /api/admin/premium/{id}", s.admin(s.adminRevokePremium))
+	mux.HandleFunc("GET /api/admin/promo-codes", s.admin(s.adminListPromos))
+	mux.HandleFunc("POST /api/admin/promo-codes", s.admin(s.adminCreatePromo))
+	mux.HandleFunc("POST /api/admin/promo-codes/{id}/active", s.admin(s.adminSetPromoActive))
+
+	g := s.guards()
+	for _, m := range s.mounts {
+		m(mux, g)
+	}
 
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusNotFound, errorBody{Code: "NOT_FOUND", Message: "Endpoint tidak ditemukan."})

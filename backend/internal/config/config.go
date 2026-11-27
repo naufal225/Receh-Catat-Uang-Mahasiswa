@@ -14,6 +14,8 @@ import (
 )
 
 type Config struct {
+	// AppName is the product name in reports, logs and (later) emails.
+	AppName       string
 	Addr          string
 	DBDSN         string
 	DBMaxOpen     int
@@ -27,10 +29,25 @@ type Config struct {
 	AdminEmail    string
 	AdminPassword string
 	SweepEvery    time.Duration
+	// BillingEnabled false is the personal edition: everyone is premium.
+	BillingEnabled bool
 	// Google sign-in; disabled when GoogleClientID is empty.
 	GoogleClientID     string
 	GoogleClientSecret string
 	GoogleRedirectURL  string
+
+	// Payments (only read when billing is enabled). BillingProvider is
+	// "mock", "midtrans" or "xendit"; a chosen gateway needs its keys.
+	BillingProvider string
+	// PublicBaseURL is the address people (and gateways) reach this app at;
+	// checkout return links and the webhook URL shown to the admin use it.
+	PublicBaseURL       string
+	MidtransServerKey   string
+	MidtransProduction  bool
+	XenditSecretKey     string
+	XenditCallbackToken string
+	// MockAllowProd lets the fake gateway run behind HTTPS (cookie secure).
+	MockAllowProd bool
 }
 
 // Load reads .env if present (real environment variables win) and applies defaults.
@@ -72,23 +89,66 @@ func Load() (*Config, error) {
 	if err != nil || sweep <= 0 {
 		return nil, fmt.Errorf("RECURRING_SWEEP_EVERY must be a positive duration such as 1h")
 	}
+	billing := envBool("BILLING_ENABLED", defaultBillingEnabled)
+	addr := env("ADDR", ":8080")
+	public := strings.TrimRight(strings.TrimSpace(env("PUBLIC_BASE_URL", "")), "/")
+	if public == "" {
+		public = "http://localhost" + addr
+		if !strings.HasPrefix(addr, ":") {
+			public = "http://" + addr
+		}
+	}
+	provider := strings.ToLower(strings.TrimSpace(env("BILLING_PROVIDER", "mock")))
+	midtransEnv := strings.ToLower(strings.TrimSpace(env("MIDTRANS_ENV", "sandbox")))
+	if midtransEnv != "sandbox" && midtransEnv != "production" {
+		return nil, fmt.Errorf("MIDTRANS_ENV must be sandbox or production")
+	}
+	cfgPay := struct{ mid, xenSecret, xenToken string }{
+		strings.TrimSpace(os.Getenv("MIDTRANS_SERVER_KEY")),
+		strings.TrimSpace(os.Getenv("XENDIT_SECRET_KEY")),
+		strings.TrimSpace(os.Getenv("XENDIT_CALLBACK_TOKEN")),
+	}
+	if billing {
+		switch provider {
+		case "mock":
+		case "midtrans":
+			if cfgPay.mid == "" {
+				return nil, fmt.Errorf("BILLING_PROVIDER=midtrans needs MIDTRANS_SERVER_KEY")
+			}
+		case "xendit":
+			if cfgPay.xenSecret == "" || cfgPay.xenToken == "" {
+				return nil, fmt.Errorf("BILLING_PROVIDER=xendit needs XENDIT_SECRET_KEY and XENDIT_CALLBACK_TOKEN")
+			}
+		default:
+			return nil, fmt.Errorf("BILLING_PROVIDER must be mock, midtrans or xendit")
+		}
+	}
 	return &Config{
-		Addr:          env("ADDR", ":8080"),
-		DBDSN:         dsn,
-		DBMaxOpen:     maxOpen,
-		SessionTTL:    sessionTTL,
-		DashboardTTL:  dashTTL,
-		StaticDir:     env("STATIC_DIR", "../frontend/dist"),
-		Location:      loc,
-		CookieSecure:  env("COOKIE_SECURE", "false") == "true",
-		TrustProxy:    env("TRUST_PROXY", "false") == "true",
-		GeoIPURL:      env("GEOIP_URL", "https://ipwho.is/"),
-		AdminEmail:    env("ADMIN_EMAIL", "admin@receh.local"),
-		AdminPassword: os.Getenv("ADMIN_PASSWORD"),
-		SweepEvery:    sweep,
-		GoogleClientID:     googleID,
-		GoogleClientSecret: googleSecret,
-		GoogleRedirectURL:  googleRedirect,
+		BillingProvider:     provider,
+		PublicBaseURL:       public,
+		MidtransServerKey:   cfgPay.mid,
+		MidtransProduction:  midtransEnv == "production",
+		XenditSecretKey:     cfgPay.xenSecret,
+		XenditCallbackToken: cfgPay.xenToken,
+		MockAllowProd:       envBool("MOCK_ALLOW_PROD", false),
+		Addr:                addr,
+		DBDSN:               dsn,
+		DBMaxOpen:           maxOpen,
+		SessionTTL:          sessionTTL,
+		DashboardTTL:        dashTTL,
+		StaticDir:           env("STATIC_DIR", "../frontend/dist"),
+		Location:            loc,
+		CookieSecure:        env("COOKIE_SECURE", "false") == "true",
+		TrustProxy:          env("TRUST_PROXY", "false") == "true",
+		GeoIPURL:            env("GEOIP_URL", "https://ipwho.is/"),
+		AdminEmail:          env("ADMIN_EMAIL", "admin@receh.local"),
+		AdminPassword:       os.Getenv("ADMIN_PASSWORD"),
+		SweepEvery:          sweep,
+		BillingEnabled:      billing,
+		AppName:             env("APP_NAME", "Receh"),
+		GoogleClientID:      googleID,
+		GoogleClientSecret:  googleSecret,
+		GoogleRedirectURL:   googleRedirect,
 	}, nil
 }
 
@@ -118,6 +178,17 @@ func cacheTTL(key, fallback string) (time.Duration, error) {
 		return 0, fmt.Errorf("%s must be a duration such as 30s, or 0 to disable", key)
 	}
 	return d, nil
+}
+
+// envBool reads "true"/"false"; anything else, or unset, keeps the fallback.
+func envBool(key string, fallback bool) bool {
+	switch os.Getenv(key) {
+	case "true":
+		return true
+	case "false":
+		return false
+	}
+	return fallback
 }
 
 func env(key, fallback string) string {

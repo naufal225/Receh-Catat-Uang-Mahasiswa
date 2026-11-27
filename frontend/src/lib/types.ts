@@ -1,13 +1,11 @@
-// Mirrors the JSON the Go API returns (backend/internal/domain/entities.go).
+// Mirrors the JSON the Go core API returns (backend/internal/domain).
+// Module types live with their module (src/modules/<name>/types.ts).
 
 export type Role = 'user' | 'admin';
 export type UserStatus = 'active' | 'suspended' | 'frozen';
-export type TxType = 'income' | 'expense';
-/** Every row in history: transfers add two legs that are neither income nor expense. */
-export type EntryType = TxType | 'transfer_out' | 'transfer_in';
-export type WalletType = 'bank' | 'ewallet' | 'cash' | 'other';
-export type Frequency = 'daily' | 'weekly' | 'monthly' | 'yearly';
-export type Unit = 'day' | 'week' | 'month' | 'year';
+
+/** A label in every UI language, as modules declare them on the server. */
+export type Localized = Record<string, string>;
 
 export interface User {
   id: number;
@@ -20,6 +18,8 @@ export interface User {
   /** False for accounts created with Google that never set a password. */
   hasPassword: boolean;
   googleLinked: boolean;
+  /** Only in the admin user list. */
+  plan?: Plan;
 }
 
 export interface Session {
@@ -33,143 +33,11 @@ export interface Session {
   current: boolean;
 }
 
-export interface Wallet {
-  id: number;
-  name: string;
-  type: WalletType;
-  color: string;
-  balance: number;
-  archived: boolean;
-}
-
-export interface Category {
-  id: number;
-  name: string;
-  type: TxType;
-  color: string;
-}
-
-export interface Transaction {
-  id: number;
-  walletId: number;
-  walletName: string;
-  walletColor: string;
-  categoryId: number;
-  categoryName: string;
-  categoryColor: string;
-  type: EntryType;
-  name: string;
-  amount: number;
-  occurredOn: string;
-  recurringId: number | null;
-  /** Set on both legs of a transfer and on its fee expense. */
-  transferId: number | null;
-  counterpartName?: string;
-  counterpartColor?: string;
-  transferFee?: number;
-  createdAt: string;
-}
-
-export interface Transfer {
-  id: number;
-  fromWalletId: number;
-  fromWalletName: string;
-  toWalletId: number;
-  toWalletName: string;
-  amount: number;
-  fee: number;
-  note: string;
-  occurredOn: string;
-  createdAt: string;
-}
-
-export interface Recurring {
-  id: number;
-  walletId: number;
-  walletName: string;
-  walletColor: string;
-  categoryId: number;
-  categoryName: string;
-  categoryColor: string;
-  type: TxType;
-  name: string;
-  amount: number;
-  frequency: Frequency;
-  anchorDay: number;
-  nextDue: string;
-  active: boolean;
-  lastError: string;
-}
-
 export interface Page<T> {
   items: T[];
   total: number;
   page: number;
   pageSize: number;
-}
-
-export interface Bucket {
-  key: string;
-  label: string;
-  from: string;
-  to: string;
-  income: number;
-  expense: number;
-}
-
-export interface CategorySlice {
-  categoryId: number;
-  name: string;
-  color: string;
-  total: number;
-}
-
-export interface Totals {
-  income: number;
-  expense: number;
-}
-
-export interface Dashboard {
-  unit: Unit;
-  from: string;
-  to: string;
-  title: string;
-  canGoForward: boolean;
-  buckets: Bucket[];
-  totals: Totals;
-  expenseSlices: CategorySlice[];
-  incomeSlices: CategorySlice[];
-  totalBalance: number;
-  wallets: Wallet[];
-  latest: Transaction[];
-  upcomingRoutines: Recurring[];
-}
-
-export interface SliceSet {
-  totals: Totals;
-  expenseSlices: CategorySlice[];
-  incomeSlices: CategorySlice[];
-}
-
-export interface WalletSummary {
-  name: string;
-  income: number;
-  expense: number;
-  transferIn: number;
-  transferOut: number;
-  balance: number;
-}
-
-export interface MonthlyReport {
-  month: string;
-  title: string;
-  owner: string;
-  totals: Totals;
-  wallets: WalletSummary[];
-  expenseSlices: CategorySlice[];
-  incomeSlices: CategorySlice[];
-  transactions: Transaction[];
-  generatedAt: string;
 }
 
 export interface AuditLog {
@@ -182,4 +50,196 @@ export interface AuditLog {
   location: string;
   detail: string;
   createdAt: string;
+}
+
+/* ---------- Membership (freemium) ---------- */
+export type Plan = 'free' | 'premium';
+export type EntitlementSource = 'paid' | 'comp' | 'code';
+
+/** One limit a module enforces (e.g. "finance.wallets"). */
+export interface LimitDef {
+  key: string;
+  label: Localized;
+  /** On/off feature (0 or 1) rather than a count. */
+  feature: boolean;
+  free: number;
+  premium: number;
+}
+
+/** Value per LimitDef key. -1 = unlimited; for features 0 = off, 1 = on. */
+export type Limits = Record<string, number>;
+
+export interface Membership {
+  /** The workspace described, and whether the viewer owns (pays for) it. */
+  orgId: number;
+  isOwner: boolean;
+  plan: Plan;
+  /** False on the personal edition: everyone is premium and nothing is sold. */
+  billingEnabled: boolean;
+  source?: EntitlementSource;
+  endsAt: string | null;
+  note?: string;
+  limits: Limits;
+  freeLimits: Limits;
+  usage: Record<string, number>;
+  defs: LimitDef[];
+}
+
+export interface Entitlement {
+  id: number;
+  userId: number;
+  source: EntitlementSource;
+  plan: Plan;
+  startsAt: string;
+  endsAt: string | null;
+  note: string;
+  promoCode?: string;
+  revokedAt: string | null;
+  createdAt: string;
+}
+
+export interface PromoCode {
+  id: number;
+  code: string;
+  plan: Plan;
+  durationDays: number | null;
+  maxUses: number;
+  used: number;
+  expiresAt: string | null;
+  note: string;
+  active: boolean;
+  createdAt: string;
+}
+
+/* ---------- Notifications ---------- */
+/** Kinds are declared by modules (see NotificationKindDef). */
+export type NotificationKind = string;
+
+export interface NotificationKindDef {
+  key: NotificationKind;
+  label: Localized;
+  icon: string;
+  tone: 'ok' | 'warn' | 'danger' | 'neutral';
+}
+
+export interface AppNotification {
+  id: number;
+  kind: NotificationKind;
+  title: string;
+  body: string;
+  link: string;
+  readAt: string | null;
+  createdAt: string;
+}
+
+export interface Inbox {
+  items: AppNotification[];
+  unread: number;
+  kinds: NotificationKindDef[];
+}
+
+export interface NotificationSetting {
+  key: string;
+  label: Localized;
+  /** How to edit it: amount (money), hour (0-23) or number. */
+  kind: 'amount' | 'hour' | 'number';
+  default: number;
+  min: number;
+  max: number;
+}
+
+export interface NotificationPrefs {
+  kinds: (NotificationKindDef & { enabled: boolean })[];
+  settings: (NotificationSetting & { value: number })[];
+}
+
+/* ---------- Workspaces (organizations) ---------- */
+export type OrgRole = 'owner' | 'admin' | 'member';
+
+export interface OrgMembership {
+  id: number;
+  name: string;
+  /** Every account has one personal workspace; it cannot have other members. */
+  personal: boolean;
+  ownerId: number;
+  createdAt: string;
+  role: OrgRole;
+}
+
+export interface OrgPerson {
+  userId: number;
+  name: string;
+  email: string;
+  role: OrgRole;
+  joinedAt: string;
+}
+
+export interface OrgInvite {
+  id: number;
+  orgId: number;
+  orgName?: string;
+  email: string;
+  role: OrgRole;
+  invitedBy: string;
+  expiresAt: string;
+  createdAt: string;
+}
+
+// ---- Billing ----------------------------------------------------------------------
+
+export type PaymentStatus = 'pending' | 'paid' | 'expired' | 'failed';
+/** Where a workspace's subscription stands now (the server derives it from the clock). */
+export type SubState = 'active' | 'ending' | 'grace' | 'expired' | 'none';
+
+export interface PricePoint {
+  id: string;
+  plan: 'free' | 'premium';
+  interval: 'month' | 'year';
+  /** Whole units of the catalog currency. */
+  amount: number;
+  label: Localized;
+}
+
+export interface CatalogView {
+  enabled: boolean;
+  provider?: string;
+  catalog: { planName: Localized; currency: string; prices: PricePoint[]; graceDays: number; renewalNoticeDays: number };
+  defs: LimitDef[];
+}
+
+export interface Payment {
+  id: number;
+  orgId: number;
+  orgName: string;
+  payerEmail: string;
+  priceId: string;
+  amount: number;
+  currency: string;
+  provider: string;
+  externalId: string;
+  status: PaymentStatus;
+  checkoutUrl?: string;
+  periodStart: string | null;
+  periodEnd: string | null;
+  expiresAt: string;
+  paidAt: string | null;
+  createdAt: string;
+}
+
+export interface BillingOverview {
+  enabled: boolean;
+  isOwner: boolean;
+  provider?: string;
+  subscription: { state: SubState; priceId: string; periodEnd: string; graceEndsAt: string; cancelAtPeriodEnd: boolean } | null;
+  pending: Payment | null;
+  payments: Payment[];
+}
+
+export interface IntegrationStatus {
+  enabled: boolean;
+  provider: string;
+  mode: string;
+  keys: { name: string; set: boolean }[];
+  webhookUrl: string;
+  returnUrl: string;
 }

@@ -26,6 +26,7 @@ const paths: Record<string, string> = {
   eye: 'M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12zm10 3a3 3 0 1 0 0-6 3 3 0 0 0 0 6z',
   eyeOff: 'M3 3l18 18M10.6 5.1A10 10 0 0 1 12 5c6.5 0 10 7 10 7a17 17 0 0 1-3.2 4.1M6.6 6.6C3.8 8.4 2 12 2 12s3.5 7 10 7a9.7 9.7 0 0 0 5.4-1.6M9.9 9.9a3 3 0 0 0 4.2 4.2',
   check: 'M5 12l5 5L20 7',
+  chevron: 'M7 9l5 5 5-5',
   alert: 'M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z',
   pause: 'M8 5v14M16 5v14',
   play: 'M7 4l13 8-13 8z',
@@ -40,6 +41,11 @@ const paths: Record<string, string> = {
   menu: 'M4 7h16M4 12h16M4 17h16',
   transfer: 'M4 8h15M15 4l4 4-4 4M20 16H5M9 12l-4 4 4 4',
   swap: 'M7 20V4M3 8l4-4 4 4M17 4v16M13 16l4 4 4-4',
+  copy: 'M9 9h11v11H9zM5 15H4V4h11v1',
+  target: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM12 12h.01',
+  bell: 'M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.94 1.94 0 0 0 3.4 0',
+  upload: 'M12 16V4M7 9l5-5 5 5M4 20h16',
+  bolt: 'M13 2 4 14h7l-1 8 9-12h-7z',
   table: 'M3 5h18v14H3zM3 10h18M3 15h18M9 5v14',
 };
 
@@ -79,4 +85,9 @@ export function Logo({ size = 30 }: { size?: number }) {
       />
     </svg>
   );
+}
+
+/** An icon name sent by the server, or the fallback when it is unknown. */
+export function iconOr(name: string, fallback: IconName = 'bell'): IconName {
+  return name in paths ? (name as IconName) : fallback;
 }

@@ -1,5 +1,7 @@
 // Login and registration. Registration needs only name, email and password:
 // no OTP, no email verification, as specified.
+import { signupPath } from '../modules';
+import { brand } from '../brand';
 import { useState, type FormEvent, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import { GoogleButton, oauthMessage, OrDivider, takeServerNotice, useGoogleEnabled } from '../components/GoogleButton';
@@ -14,7 +16,7 @@ function AuthLayout({ children }: { children: ReactNode }) {
   return (
     <div className="auth">
       <div className="auth-art">
-        <Link to="/" className="brand" style={{ color: '#fffdf8', padding: 0 }}><Logo /> Receh</Link>
+        <Link to="/" className="brand" style={{ color: '#fffdf8', padding: 0 }}><Logo /> {brand.name}</Link>
         <div>
           <h2>Setiap rupiah <em>kelihatan</em>, dari BCA sampai GoPay.</h2>
           <p style={{ color: '#c9d4cf', marginTop: 14, maxWidth: 420 }}>Catat dalam hitungan detik, lihat ke mana uang pergi, dan biarkan tagihan rutin tercatat sendiri.</p>
@@ -131,7 +133,7 @@ export function Register() {
       // in" redirect never sees the new user while still on the old path.
       flushSync(() => {
         setUser(u);
-        navigate('/app/dompet?baru=1', { replace: true });
+        navigate(signupPath, { replace: true });
       });
     } catch (err) {
       const e2 = err as ApiError;

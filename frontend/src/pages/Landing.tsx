@@ -1,3 +1,4 @@
+import { brand } from '../brand';
 import { Icon, Logo, type IconName } from '../components/Icon';
 import { Link } from '../components/ui';
 import { useAuth } from '../lib/auth';
@@ -17,10 +18,11 @@ export default function Landing() {
   return (
     <div className="landing">
       <header className="l-nav">
-        <Link to="/" className="brand"><Logo /> Receh</Link>
+        <Link to="/" className="brand"><Logo /> {brand.name}</Link>
         <nav aria-label="Navigasi">
           <a href="#fitur" className="btn btn-quiet hide-sm">Fitur</a>
           <a href="#cara" className="btn btn-quiet hide-sm">Cara pakai</a>
+          <Link to="/harga" className="btn btn-quiet hide-sm">Harga</Link>
           {home ? (
             <Link to={home} className="btn btn-primary">Buka aplikasi</Link>
           ) : (
@@ -37,7 +39,7 @@ export default function Landing() {
           <div>
             <span className="l-kicker reveal"><Icon name="sparkle" size={16} /> Dibuat untuk dompet mahasiswa</span>
             <h1 className="reveal reveal-2">Uang saku <span className="hl">nggak lagi</span> hilang entah ke mana.</h1>
-            <p className="reveal reveal-3">Receh mencatat dan merencanakan pemasukan dan pengeluaranmu per dompet, dari rekening BCA sampai GoPay, dalam tampilan yang langsung dipahami sekali lihat.</p>
+            <p className="reveal reveal-3">{brand.name} mencatat dan merencanakan pemasukan dan pengeluaranmu per dompet, dari rekening BCA sampai GoPay, dalam tampilan yang langsung dipahami sekali lihat.</p>
             <div className="l-cta reveal reveal-4">
               <Link to={home ?? '/daftar'} className="btn btn-primary">{home ? 'Buka aplikasi' : 'Daftar gratis'} <Icon name="right" size={18} /></Link>
               <a href="#fitur" className="btn btn-ghost">Lihat fitur</a>
@@ -84,7 +86,7 @@ export default function Landing() {
 
         <section className="l-section" id="fitur">
           <h2>Semua yang kamu butuhkan, tanpa ribet.</h2>
-          <p>Tidak perlu jago akuntansi. Kalau bisa pakai e-wallet, kamu bisa pakai Receh.</p>
+          <p>Tidak perlu jago akuntansi. Kalau bisa pakai e-wallet, kamu bisa pakai {brand.name}.</p>
           <div className="features">
             {features.map((f) => (
               <div key={f.title} className="card feature">
@@ -118,7 +120,7 @@ export default function Landing() {
       </main>
 
       <footer className="l-footer">
-        <span>© {new Date().getFullYear()} Receh</span>
+        <span>© {new Date().getFullYear()} {brand.name}</span>
         <span>Catat. Rencanakan. Tenang.</span>
       </footer>
     </div>
