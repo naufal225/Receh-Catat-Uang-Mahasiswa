@@ -15,6 +15,30 @@ sendiri, jadi tidak butuh library tambahan (tidak ada Redis, ORM, atau state man
 
 ## 1. Menjalankan aplikasi
 
+### Dengan Docker (paling mudah, edisi pribadi)
+
+Hanya butuh [Docker Desktop](https://www.docker.com/products/docker-desktop/) (atau Docker Engine +
+Compose di Linux). Go, Node, dan MySQL tidak perlu dipasang.
+
+```bash
+git clone -b personal https://github.com/naufal225/Receh-Catat-Uang-Mahasiswa.git
+cd Receh-Catat-Uang-Mahasiswa
+docker compose up -d --build
+docker compose logs app        # sandi admin pertama dicetak di sini (sekali saja)
+```
+
+Buka **http://localhost:8080**, lalu daftar akun di `/daftar`. Semua fitur Premium aktif tanpa batas
+(`BILLING_ENABLED=false`). Akun admin hanya untuk mengelola pengguna.
+
+| Perintah | Fungsi |
+|---|---|
+| `docker compose stop` / `docker compose start` | Matikan / nyalakan lagi |
+| `git pull && docker compose up -d --build` | Perbarui ke versi terbaru |
+| `docker compose down` | Hapus container; data tetap tersimpan |
+| `docker compose down -v` | Hapus container **beserta seluruh data** |
+
+Pengaturan opsional (port, sandi admin, Google) ada di `.env.docker.example`; salin menjadi `.env`.
+
 ### Prasyarat
 - Go 1.24+ (`go version`)
 - Node.js 18+ (`node -v`)

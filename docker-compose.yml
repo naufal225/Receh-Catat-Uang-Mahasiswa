@@ -1,0 +1,54 @@
+# Personal edition: every Premium feature is unlocked, nothing is sold.
+#   docker compose up -d --build     then open http://localhost:8080
+# All settings are optional; override them in a .env file (see .env.docker.example).
+name: receh
+
+services:
+  db:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: receh
+      MYSQL_USER: receh
+      MYSQL_PASSWORD: ${DB_PASSWORD:-receh-local}
+      MYSQL_RANDOM_ROOT_PASSWORD: "yes"
+    volumes:
+      - db-data:/var/lib/mysql
+    # No published port: only the app talks to the database.
+    healthcheck:
+      # TCP on purpose: MySQL's temporary first-run server has networking off.
+      test: ["CMD-SHELL", 'mysqladmin ping -h 127.0.0.1 -u"$$MYSQL_USER" -p"$$MYSQL_PASSWORD" --silent']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  app:
+    build: .
+    image: receh:personal
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      # Only this computer by default. APP_BIND=0.0.0.0 opens it to the local network.
+      - "${APP_BIND:-127.0.0.1}:${APP_PORT:-8080}:8080"
+    environment:
+      DB_HOST: db
+      DB_PORT: "3306"
+      DB_NAME: receh
+      DB_USER: receh
+      DB_PASSWORD: ${DB_PASSWORD:-receh-local}
+      BILLING_ENABLED: "false"
+      APP_TIMEZONE: ${APP_TIMEZONE:-Asia/Jakarta}
+      # Plain HTTP on localhost. Set true only behind HTTPS.
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      TRUST_PROXY: ${TRUST_PROXY:-false}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@receh.local}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_REDIRECT_URL: ${GOOGLE_REDIRECT_URL:-http://localhost:8080/api/auth/google/callback}
+
+volumes:
+  db-data:
